@@ -7,6 +7,10 @@
 .product-card { min-width: 0; background: #fff; border: 1px solid #e1e6ed; border-radius: 8px; padding: 24px; margin: 0 0 24px; }
 .product-card legend { font-weight: 600; padding: 0 8px; font-size: 15px; }
 .product-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.product-colors { margin-bottom: 24px; }
+.product-colors h2 { font-size: 15px; margin-bottom: 16px; }
+.product-color-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto; gap: 14px; align-items: end; margin-bottom: 14px; }
+@media (max-width: 600px) { .product-color-row { grid-template-columns: 1fr; } }
 .product-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .product-field > span { font-size: 12px; font-weight: 600; color: #506078; }
 .product-field input, .product-field select, .product-field textarea { width: 100%; border: 1px solid #d5dde7; border-radius: 5px; padding: 10px 12px; font: inherit; color: #233247; background: #fff; min-height: 40px; }

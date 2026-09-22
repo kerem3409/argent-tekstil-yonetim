@@ -11,7 +11,7 @@ export function HomePage() {
     {incomplete && <p className="ws-error" role="alert">Bazı modüller okunamadığı için toplamlar gösterilmiyor. {data!.errors.join(' ')}</p>}
     {summary && <div className="ws-summary">{[
       ['Stoktaki Toplam Ürün Adedi', number(summary.stock), '/stok/urunler'],
-      ['Devam Eden Üretim İşi', number(summary.jobs), '/uretim/devam-eden'],
+      ['Devam Eden Üretim İşi', number(summary.jobs), '/uretim/takip'],
       ['Fasoncularda Devam Eden İş', number(summary.subcontractJobs), '/uretim/fason'],
       ['Toplam Alacak', money(summary.receivable), '/finans/alacaklar'],
       ['Toplam Borç', money(summary.debt), '/finans/borclar'],

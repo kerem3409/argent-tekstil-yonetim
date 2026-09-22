@@ -1,0 +1,34 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { createWorkflowRepository } from '../src/data/production/workflowRepository.ts';
+
+function repository() {
+  const values = new Map<string, string>();
+  const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); } };
+  const deps = {
+    contacts: { async get(id: string) { return id ? { id, name: id, status: 'Aktif' as const } : null; } },
+    definitions: { async requireActive(id: string) { return { id, name: 'Polo Yaka Tişört' }; } },
+    products: { async load() { return { productionReceipts: [] }; } },
+    fabrics: { async load() { return { records: [] }; } },
+  };
+  return createWorkflowRepository(() => storage, deps);
+}
+
+const input = (orderCardId: string, brand: string) => ({ productDefinitionId: 'product-1', orderCardId, brand, fabricId: '', fabricName: 'Penye', gsm: '180', sizeSeries: 'Yetişkin' as const, cuttingMode: 'Kumaştan Çıktığı Kadar' as const, targetQuantity: null, cutterCompanyId: 'cutting', date: '2026-09-21', productInstructions: '', note: '' });
+
+test('Sipariş kartı birden fazla tek markalı üretim kartını bağlar', async () => {
+  const repo = repository(); const order = await repo.createOrder({ orderType: 'Stok İçin Üretim', date: '2026-09-21', note: '' });
+  const first = await repo.create(input(order.id, 'PALO')); const second = await repo.create(input(order.id, 'TOMMY'));
+  assert.deepEqual((await repo.listOrders()).find((item) => item.id === order.id)?.productionCardIds, [first.id, second.id]);
+});
+test('Sipariş kalemleri renk toplamını ve üretim aktarım sınırını uygular', async () => {
+  const repo = repository(); const order = await repo.createOrder({ orderType: 'Ön Sipariş', customerId: 'customer-1', date: '2026-09-21', note: '', items: [{ productDefinitionId: 'product-1', colorQuantities: [{ color: 'Beyaz', quantity: 100 }, { color: 'Siyah', quantity: 50 }], fabricName: '24/1 Penye', gsm: '180', fabricProperties: 'Likralı', productDetails: 'Yaka detayı' }] });
+  const item = order.items[0]; assert.equal(item.totalQuantity, 150); assert.equal(item.fabricName, '24/1 Penye');
+  await repo.create({ ...input(order.id, 'PALO'), orderItemId: item.id, selectedColorQuantities: [{ color: 'Beyaz', quantity: 60 }] });
+  await assert.rejects(repo.create({ ...input(order.id, 'TOMMY'), orderItemId: item.id, selectedColorQuantities: [{ color: 'Lacivert', quantity: 1 }] }), /Sipariş kaleminde olmayan renk/);
+  await assert.rejects(repo.create({ ...input(order.id, 'TOMMY'), orderItemId: item.id, selectedColorQuantities: [{ color: 'Beyaz', quantity: 41 }] }), /Kalan sipariş adedinden/);
+  const card = await repo.create({ ...input(order.id, 'TOMMY'), orderItemId: item.id, selectedColorQuantities: [{ color: 'Beyaz', quantity: 40 }] }); assert.equal(card.fabricProperties, 'Likralı'); assert.equal(card.productInstructions, 'Yaka detayı');
+});
+test('Ön siparişte müşteri zorunludur, stok üretiminde değildir', async () => {
+  const repo = repository(); await assert.rejects(repo.createOrder({ orderType: 'Ön Sipariş', date: '2026-09-21', note: '' }), /müşteri/); const order = await repo.createOrder({ orderType: 'Stok İçin Üretim', date: '2026-09-21', note: '' }); assert.equal(order.customerId, undefined);
+});

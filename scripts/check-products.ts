@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createProductRepository, PRODUCTS_STORAGE_KEY } from '../src/data/products/localStorageRepository.ts';
-import { entryTypes, filterStock, newStockInput, validateStock } from '../src/features/products/model.ts';
+import { entryQuantity, entryTypes, filterStock, newStockInput, validateStock } from '../src/features/products/model.ts';
+import { OPEN_ACCOUNT_ID } from '../src/domain/sales.ts';
+import { emptyFilters, stockReport } from '../src/domain/reportSelectors.ts';
 import type { StockInput } from '../src/features/products/model.ts';
 import { emptyContact } from '../src/features/contacts/model.ts';
 
@@ -17,6 +19,77 @@ function setup() {
 function input(overrides: Partial<StockInput> = {}): StockInput {
   return { ...newStockInput(), name: 'Polo Yaka Erkek Tişört', brand: 'Argent', color: 'Beyaz', series: "5’li", assortment: 'S1 / M1 / L2 / XL1', packSize: 5, packCount: 20, unitCost: 125.25, date: '2026-09-20', supplierId: person.id, ...overrides };
 }
+
+const colors = [{ color: 'Beyaz', quantity: 500 }, { color: 'Siyah', quantity: 200 }, { color: 'Lacivert', quantity: 300 }];
+
+test('Renk dağılımı tek partide 1000 adet, ayrı stok/hareket ve doğru toplam cari oluşturur', async () => {
+  const { repository, storage, contacts } = setup();
+  const entry = input({ colors, brand: 'Palo', unitCost: 12.25, postAccount: true, quantity: 9999, packCount: 9999 });
+  assert.equal(entryQuantity(entry), 1000);
+  const first = await repository.create(entry);
+  const data = await createProductRepository(() => storage, contacts).load();
+  assert.equal(data.nextBatch, 2); assert.equal(data.records.length, 3);
+  assert.equal(new Set(data.records.map((r) => r.productId)).size, 1);
+  assert.deepEqual(data.records.map((r) => r.batch), [first.batch, first.batch, first.batch]);
+  assert.deepEqual(data.records.map((r) => ({ color: r.color, quantity: r.quantity })), colors);
+  assert.deepEqual(data.movements.map((m) => m.incoming), [500, 200, 300]);
+  assert.equal(data.accountMovements.reduce((sum, m) => sum + m.amountMinor, 0), 1_225_000);
+  assert.equal(new Set(data.accountMovements.map((m) => m.movementId)).size, 3);
+  assert.equal((await repository.create(input({ colors }))).batch, 'P-0002');
+});
+
+test('Renk satış, iade ve düzeltmesi diğer renklerin stoklarını değiştirmez', async () => {
+  const { repository } = setup();
+  await repository.create(input({ colors }));
+  const [white, black, navy] = (await repository.load()).records;
+  await repository.sell({ stockId: black.id, companyId: OPEN_ACCOUNT_ID, responsibleId: '', responsibleName: 'Test', quantityType: 'Adet', quantity: 20, price: 150, date: black.date, note: '' });
+  await repository.returnStock(white.id, { quantity: 5, date: white.date, description: 'Renk iadesi', postAccount: false, supplierId: '' });
+  await repository.adjust(navy.id, { mode: 'total', amount: 290, date: navy.date, description: 'Renk sayımı' });
+  const data = await repository.load();
+  assert.deepEqual(data.records.map((r) => r.quantity), [495, 180, 290]);
+  const report = stockReport({ contacts: [], products: data, errors: [] }, { ...emptyFilters, batch: white.batch });
+  assert.deepEqual(report[0].rows.map((row) => [row[2], row[7]]), [['Beyaz', 495], ['Siyah', 180], ['Lacivert', 290]]);
+  const filtered = filterStock(data.records, { search: '', brand: '', batch: white.batch, color: 'Siyah', status: '' });
+  assert.equal(filtered.length, 1); assert.equal(filtered[0].quantity, 180);
+  await assert.rejects(repository.sell({ stockId: black.id, companyId: OPEN_ACCOUNT_ID, responsibleId: '', responsibleName: 'Test', quantityType: 'Adet', quantity: 181, price: 150, date: black.date, note: '' }), /Stok yetersiz/);
+});
+
+test('Boş, tekrarlı, kesirli ve geçersiz renk dağılımı hiçbir kayıt veya parti sayacı değiştirmez', async () => {
+  const { repository, values } = setup();
+  await repository.create(input());
+  const before = values.get(PRODUCTS_STORAGE_KEY);
+  for (const rows of [[], [{ color: '', quantity: 1 }], [{ color: '  ', quantity: 1 }], [{ color: 'Siyah', quantity: 1 }, { color: ' SİYAH ', quantity: 2 }], ...[0, -1, 1.5, NaN, Infinity].map((quantity) => [{ color: 'Beyaz', quantity }]), [{ color: 'Beyaz', quantity: 1_000_000_000 }, { color: 'Siyah', quantity: 1 }]]) {
+    await assert.rejects(repository.create(input({ colors: rows })));
+    assert.equal(values.get(PRODUCTS_STORAGE_KEY), before);
+  }
+});
+
+test('Tüm giriş türleri renk dağılımını destekler; mevcut parti ve eski kayıtlar korunur', async () => {
+  const { repository } = setup();
+  const old = await repository.create(input());
+  for (const entryType of entryTypes) {
+    const record = await repository.create(input({ entryType, colors: [{ color: 'Kırmızı', quantity: 7 }, { color: 'Yeşil', quantity: 8 }] }));
+    const data = await repository.load();
+    assert.equal(data.records.filter((r) => r.batch === record.batch).length, 2);
+    assert.equal(data.movements.find((m) => m.stockId === record.id)?.type, entryType);
+    assert.equal(record.initialPackCount, 1); assert.equal(record.quantity, 7);
+  }
+  const nextBatch = (await repository.load()).nextBatch;
+  await repository.create(input({ existingBatch: old.batch, colors }));
+  const data = await repository.load();
+  assert.equal(data.nextBatch, nextBatch);
+  assert.deepEqual(data.records.find((r) => r.id === old.id), old);
+  assert.equal(data.records.filter((r) => r.batch === old.batch).length, 4);
+});
+
+test('Çok renkli girişte depolama hatası hiçbir kısmi stok veya cari hareket bırakmaz', async () => {
+  const { repository, values, fail } = setup();
+  await repository.create(input());
+  const before = values.get(PRODUCTS_STORAGE_KEY);
+  fail();
+  await assert.rejects(repository.create(input({ colors, postAccount: true })), /kaydedilemedi/);
+  assert.equal(values.get(PRODUCTS_STORAGE_KEY), before);
+});
 
 test('Paket girişi 100 adet oluşturur; stok, hareket ve cari kayıt yeniden yüklenir', async () => {
   const { repository, storage, contacts } = setup();

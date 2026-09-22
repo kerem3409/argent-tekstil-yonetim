@@ -1,3 +1,6 @@
+import { projectWorkflow } from '../../domain/productionWorkflow.ts';
+import { resolveDefinition } from '../productDefinitions/repository.ts';
+import type { ProductDefinitionRepository } from '../productDefinitions/repository';
 import { createStore } from '../shared/store.ts';
 import type { StoragePort, StoreLock } from '../shared/store';
 import type { ContactRepository } from '../contacts/repository';
@@ -5,14 +8,18 @@ import { checkDate, minor, quantity, requireText, uid } from '../../domain/commo
 import { operationTotals, operations, planQuantity, stageAmount, stageStatuses } from '../../domain/production.ts';
 import type { PlanInput, ProductionStage, ProductionStore, StageInput } from '../../domain/production';
 
-export function createProductionRepository(storage: () => StoragePort, contacts: Pick<ContactRepository, 'get'>, lock?: StoreLock, isCompleted: (jobId: string) => Promise<boolean> = async () => false) {
-  const store = createStore<ProductionStore>('argent-tekstil.production.v1', () => ({ version: 1, plans: [], jobs: [], stages: [], nextPlan: 1, nextJob: 1, nextStage: 1 }), (value) => {
+export function validateProductionStore(value: unknown) {
     const data = value as ProductionStore;
     if (!data || data.version !== 1 || !Array.isArray(data.plans) || !Array.isArray(data.jobs) || !Array.isArray(data.stages) || ![data.nextPlan, data.nextJob, data.nextStage].every((n) => Number.isSafeInteger(n) && n > 0)) throw new Error();
     for (const p of data.plans) { requireText(p.name, 'Ürün'); if (!p.id || !Array.isArray(p.colors) || !p.colors.length) throw new Error(); quantity(planQuantity(p)); }
     for (const j of data.jobs) if (!data.plans.some((p) => p.id === j.planId)) throw new Error();
     if (new Set(data.jobs.map((j) => j.planId)).size !== data.jobs.length) throw new Error();
     for (const s of data.stages) { if (!data.jobs.some((j) => j.id === s.jobId) || !s.lines.length || !stageStatuses.includes(s.status)) throw new Error(); for (const line of s.lines) { quantity(line.quantity, 'Adet', true); quantity(line.returned, 'Gelen', true, true); if (line.returned > line.quantity || !operations.includes(line.operation) || !Number.isSafeInteger(line.priceMinor) || line.priceMinor < 0) throw new Error(); } }
+}
+
+export function createProductionRepository(storage: () => StoragePort, contacts: Pick<ContactRepository, 'get'>, lock?: StoreLock, isCompleted: (jobId: string) => Promise<boolean> = async () => false, definitions?: ProductDefinitionRepository) {
+  const store = createStore<ProductionStore>('argent-tekstil.production.v1', () => ({ version: 1, plans: [], jobs: [], stages: [], nextPlan: 1, nextJob: 1, nextStage: 1 }), (value) => {
+    validateProductionStore(value);
   }, storage, lock);
   async function writable(jobId: string) { if (await isCompleted(jobId)) throw new Error('Tamamlanan üretim değiştirilemez.'); }
   function statusCheck(input: { status: ProductionStage['status']; lines: { quantity: number; returned: number }[] }) {
@@ -23,15 +30,16 @@ export function createProductionRepository(storage: () => StoragePort, contacts:
     if (['Bekliyor', 'İşlemde'].includes(input.status) && any) throw new Error('Geri gelen adet varsa Kısmi Geldi veya Tamamlandı seçin.');
   }
   return {
-    load: store.load,
+    async load() { const data = projectWorkflow(await store.load()); if (definitions) { const list = await definitions.list(); data.plans = data.plans.map((p) => resolveDefinition(p, list)); } return data; },
     async createPlan(input: PlanInput) {
+      if (definitions) { const definition = await definitions.requireActive(input.productDefinitionId); input = { ...input, name: definition.name }; }
       requireText(input.name, 'Ürün'); checkDate(input.startDate); if (input.deliveryDate) { checkDate(input.deliveryDate); if (input.deliveryDate < input.startDate) throw new Error('Teslim tarihi başlangıçtan önce olamaz.'); }
       quantity(input.total, 'Planlanan toplam adet', true); if (!input.colors.length) throw new Error('Renk dağılımı girin.');
       input.colors.forEach((c) => { requireText(c.color, 'Renk'); quantity(c.quantity, 'Renk adedi', true); });
       if (input.colors.reduce((s, c) => s + c.quantity, 0) !== input.total) throw new Error('Renk adetleri planlanan toplam adede eşit olmalıdır.');
       if (new Set(input.colors.map((c) => c.color.trim().toLocaleLowerCase('tr'))).size !== input.colors.length) throw new Error('Aynı rengi tek satırda girin.');
       if (!['Planlandı', 'Beklemede', 'İptal'].includes(input.status)) throw new Error('Plan durumu seçin.');
-      return store.transact((data) => { const plan = { id: uid(), number: `PL-${String(data.nextPlan++).padStart(4, '0')}`, productId: uid(), name: input.name.trim(), brand: input.brand.trim(), colors: input.colors.map((c) => ({ ...c, id: uid() })), startDate: input.startDate, deliveryDate: input.deliveryDate, note: input.note, status: input.status }; data.plans.push(plan); return plan; });
+      return store.transact(async (data) => { if (definitions) { const definition = await definitions.requireActive(input.productDefinitionId); input = { ...input, name: definition.name }; } const plan = { id: uid(), number: `PL-${String(data.nextPlan++).padStart(4, '0')}`, productId: uid(), ...(input.productDefinitionId ? { productDefinitionId: input.productDefinitionId } : {}), name: input.name.trim(), brand: input.brand.trim(), colors: input.colors.map((c) => ({ ...c, id: uid() })), startDate: input.startDate, deliveryDate: input.deliveryDate, note: input.note, status: input.status }; data.plans.push(plan); return plan; });
     },
     async setPlanStatus(id: string, status: PlanInput['status']) { if (!['Planlandı', 'Beklemede', 'İptal'].includes(status)) throw new Error('Durum seçin.'); return store.transact((data) => { if (data.jobs.some((j) => j.planId === id)) throw new Error('Başlatılmış plan değiştirilemez.'); const plan = data.plans.find((p) => p.id === id); if (!plan) throw new Error('Plan bulunamadı.'); plan.status = status; }); },
     async startPlan(id: string, date: string) {

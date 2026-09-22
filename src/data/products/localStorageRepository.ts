@@ -5,6 +5,9 @@ import type { ProductRepository } from './repository';
 import { OPEN_ACCOUNT_ID } from '../../domain/sales.ts';
 import { minor, requireText } from '../../domain/common.ts';
 
+import { resolveDefinition } from '../productDefinitions/repository.ts';
+import type { ProductDefinitionRepository } from '../productDefinitions/repository';
+
 export const PRODUCTS_STORAGE_KEY = 'argent-tekstil.products.v1';
 type StoragePort = Pick<Storage, 'getItem' | 'setItem'>;
 type Lock = <T>(work: () => Promise<T>) => Promise<T>;
@@ -46,7 +49,7 @@ function assertStore(value: unknown): asserts value is ProductStore {
   }
 }
 
-export function createProductRepository(getStorage: () => StoragePort, contacts: Pick<ContactRepository, 'get'>, lock: Lock = (work) => work()): ProductRepository {
+export function createProductRepository(getStorage: () => StoragePort, contacts: Pick<ContactRepository, 'get'>, lock: Lock = (work) => work(), definitions?: ProductDefinitionRepository): ProductRepository {
   function read(): ProductStore {
     let raw: string | null;
     try { raw = getStorage().getItem(PRODUCTS_STORAGE_KEY); }
@@ -88,7 +91,7 @@ export function createProductRepository(getStorage: () => StoragePort, contacts:
       amountMinor, currency: 'TRY', date: item.date, description: item.description, status: 'pending' });
   }
   return {
-    async load() { return read(); },
+    async load() { const data = read(); if (definitions) { const list = await definitions.list(); data.records = data.records.map((r) => resolveDefinition(r, list)); } return data; },
     async sell(input) {
       return lock(async () => {
         const open = input.companyId === OPEN_ACCOUNT_ID;
@@ -117,7 +120,7 @@ export function createProductRepository(getStorage: () => StoragePort, contacts:
         if (!input.jobId || !input.productId || !input.name.trim() || !validDate(input.date) || !validCount(input.waste) || !validCount(good) || input.colors.some((c) => !c.color.trim() || !validCount(c.quantity)) || !Number.isSafeInteger(input.unitCostMinor) || input.unitCostMinor < 0) throw new Error('Üretim aktarım bilgileri geçersiz.');
         const batch = `P-${String(data.nextBatch++).padStart(4, '0')}`; const stockIds: string[] = [];
         for (const color of input.colors.filter((c) => c.quantity > 0)) {
-          const record: StockRecord = { id: crypto.randomUUID(), productId: input.productId, productionJobId: input.jobId, batch, entryType: 'Üretimden Gelen', name: input.name, brand: input.brand, detail: '', fabric: '', grammage: '', color: color.color, series: '', assortment: '', packSize: 1, initialPackCount: color.quantity, quantity: 0, unitCostMinor: input.unitCostMinor, date: input.date, note: input.note, supplierId: '', status: 'Aktif', createdAt: new Date().toISOString() };
+          const record: StockRecord = { id: crypto.randomUUID(), ...(input.productDefinitionId ? { productDefinitionId: input.productDefinitionId } : {}), productId: input.productId, productionJobId: input.jobId, ...(input.productionNo ? { productionNo: input.productionNo, productionRowId: color.rowId, size: color.size } : {}), batch, entryType: 'Üretimden Gelen', name: input.name, brand: color.brand ?? input.brand, detail: '', fabric: input.fabric ?? '', grammage: input.grammage ?? '', color: color.color, series: input.sizeSeries ?? '', assortment: color.size ?? '', packSize: 1, initialPackCount: color.quantity, quantity: 0, unitCostMinor: input.unitCostMinor, date: input.date, note: input.note, supplierId: '', status: 'Aktif', createdAt: new Date().toISOString() };
           data.records.push(record); stockIds.push(record.id); movement(data, record, color.quantity, input.date, 'Üretimden Gelen', `Üretim tamamlandı. ${input.note}`);
         }
         const receipt = { jobId: input.jobId, stockIds, good, waste: input.waste, date: input.date, note: input.note };
@@ -125,25 +128,39 @@ export function createProductRepository(getStorage: () => StoragePort, contacts:
       });
     },
     async create(input: StockInput) {
-      const errors = validateStock(input);
-      if (errors.length) throw new Error(errors.join(' '));
       return lock(async () => {
         await supplier(input.supplierId, input.postAccount);
+        const definitionList = definitions ? await definitions.list() : [];
+        if (definitions) {
+          const definition = definitionList.find((d) => d.id === input.productDefinitionId && d.status === 'Aktif');
+          if (!definition) throw new Error('Aktif bir ürün tanımı seçin.');
+          input = { ...input, name: definition.name };
+        }
+        const errors = validateStock(input);
+        if (errors.length) throw new Error(errors.join(' '));
         const data = read();
-        const existing = input.existingBatch ? data.records.find((item) => item.batch === input.existingBatch) : undefined;
+        let existing = input.existingBatch ? data.records.find((item) => item.batch === input.existingBatch) : undefined;
         if (input.existingBatch && !existing) throw new Error('Seçilen parti bulunamadı.');
-        if (existing && (existing.name !== input.name.trim() || existing.brand !== input.brand.trim())) throw new Error('Aynı partide ürün adı ve marka aynı olmalıdır.');
+        if (existing && definitions) existing = resolveDefinition(existing, definitionList);
+        if (existing && ((existing.productDefinitionId ? existing.productDefinitionId !== input.productDefinitionId : existing.name !== input.name.trim()) || existing.brand !== input.brand.trim())) throw new Error('Aynı partide ürün adı ve marka aynı olmalıdır.');
         const batch = existing?.batch ?? `P-${String(data.nextBatch++).padStart(4, '0')}`;
-        const record: StockRecord = { id: crypto.randomUUID(), productId: existing?.productId ?? existing?.id ?? crypto.randomUUID(), batch, entryType: input.entryType,
-          name: input.name.trim(), brand: input.brand.trim(), detail: input.detail.trim(), fabric: input.fabric.trim(), grammage: input.grammage.trim(),
-          color: input.color.trim(), series: input.series.trim(), assortment: input.assortment.trim(), packSize: input.packSize,
-          initialPackCount: input.packCount, quantity: 0, unitCostMinor: Math.round(input.unitCost * 100), date: input.date,
-          note: input.note.trim(), supplierId: input.supplierId, status: 'Aktif', createdAt: new Date().toISOString() };
-        data.records.push(record);
-        const item = movement(data, record, entryQuantity(input), input.date, input.entryType, input.note || `${input.entryType} · ${batch}`);
-        if (input.postAccount) ledger(data, record, item, input.supplierId, input.accountAction, purchaseAmount(record.quantity, record.unitCostMinor));
+        const productId = existing?.productId ?? existing?.id ?? crypto.randomUUID();
+        const rows = input.colors ?? [{ color: input.color, quantity: entryQuantity(input) }];
+        const created: StockRecord[] = [];
+        for (const row of rows) {
+          const record: StockRecord = { id: crypto.randomUUID(), ...(input.productDefinitionId ? { productDefinitionId: input.productDefinitionId } : {}), productId, batch, entryType: input.entryType,
+            name: input.name.trim(), brand: input.brand.trim(), detail: input.detail.trim(), fabric: input.fabric.trim(), grammage: input.grammage.trim(),
+            color: row.color.trim(), series: input.series.trim(), assortment: input.assortment.trim(), packSize: input.packSize,
+            initialPackCount: input.colors ? Math.floor(row.quantity / input.packSize) : input.packCount, quantity: 0, unitCostMinor: Math.round(input.unitCost * 100), date: input.date,
+            note: input.note.trim(), supplierId: input.supplierId, status: 'Aktif', createdAt: new Date().toISOString() };
+          data.records.push(record);
+          const item = movement(data, record, row.quantity, input.date, input.entryType, input.note || `${input.entryType} · ${batch} · ${record.color}`);
+          if (input.postAccount) ledger(data, record, item, input.supplierId, input.accountAction, purchaseAmount(record.quantity, record.unitCostMinor));
+          created.push(record);
+        }
+        // Tüm renkler ve cari hareketleri tek yazımda kaydedilir; kısmi parti oluşmaz.
         write(data);
-        return record;
+        return created[0];
       });
     },
     async adjust(id, input) {

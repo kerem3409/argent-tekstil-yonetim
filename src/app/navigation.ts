@@ -11,15 +11,16 @@ export type NavigationGroup = { title: string; symbol: string; pages: PageDefini
 
 export const navigation: NavigationGroup[] = [
   { title: 'Stok', symbol: 'stock', pages: [
+    { id: 'product-definitions', title: 'Ürün Tanımları', path: '/stok/urun-tanimlari', description: 'Stok ve üretimde kullanılan ürün türlerini yönetin.', columns: ['Ürün Adı', 'Durum', 'İşlemler'] },
     { id: 'products', title: 'Stoktaki Ürünler', path: '/stok/urunler', description: 'Atölyenizdeki hazır ürün kayıtlarını bu alandan takip edin.', columns: ['Ürün Kodu', 'Ürün Adı', 'Miktar', 'Birim'] },
     { id: 'fabrics', title: 'Stoktaki Kumaşlar', path: '/stok/kumaslar', description: 'Kumaş stok kayıtlarını tek bir yerde görüntüleyin.', columns: ['Kumaş Kodu', 'Kumaş Adı', 'Miktar', 'Birim'] },
     { id: 'materials', title: 'Stoktaki Malzemeler', path: '/stok/malzemeler', description: 'Üretimde kullanılan yardımcı malzemeleri takip edin.', columns: ['Malzeme Kodu', 'Malzeme Adı', 'Miktar', 'Birim'] },
     { id: 'equipment', title: 'Makine & Teçhizat', path: '/stok/makine-techizat', description: 'Atölyenin makine ve teçhizat kayıtlarını görüntüleyin.', columns: ['Makine Kodu', 'Makine Adı', 'Konum', 'Durum'] },
   ] },
   { title: 'Üretim', symbol: 'production', pages: [
-    { id: 'plans', title: 'Üretim Planı', path: '/uretim/plan', description: 'Planlanan üretim işlerini bu alandan takip edin.', columns: ['Plan No', 'Ürün', 'Planlanan Miktar', 'Planlanan Tarih'] },
-    { id: 'in-progress', title: 'Üretim Aşamasındaki Ürünler', path: '/uretim/devam-eden', description: 'Devam eden üretim işlerini görüntüleyin.', columns: ['İş No', 'Ürün', 'Aşama', 'Miktar'] },
-    { id: 'subcontracting', title: 'Fason Takibi', path: '/uretim/fason', description: 'Fason üretim işlerini ve ilgili firmaları takip edin.', columns: ['İş No', 'Firma', 'Ürün', 'Durum'] },
+    { id: 'production-orders', title: 'Sipariş Kartları', path: '/uretim/siparisler', description: 'Siparişleri ve onlara bağlı üretim kartlarını yönetin.', columns: ['Sipariş No', 'Tür', 'Tarih', 'Üretim Kartı'] },
+    { id: 'production-tracking', title: 'Üretim Takibi', path: '/uretim/takip', description: 'Kesimden stoğa üretimi takip edin.', columns: ['Üretim No', 'Ürün', 'Durum'] },
+    { id: 'production-completed', title: 'Tamamlanan Üretimler', path: '/uretim/tamamlanan', description: 'Tamamlanan üretimlerin geçmişini görüntüleyin.', columns: ['Üretim No', 'Ürün', 'Sağlam', 'Fire'] },
   ] },
   { title: 'Satışlar', symbol: 'sales', pages: [
     { id: 'sales', title: 'Satış Listesi', path: '/satislar', description: 'Satış kayıtlarını bu alanda görüntüleyin.', columns: ['Satış No', 'Müşteri', 'Tarih', 'Durum'] },

@@ -4,11 +4,12 @@ import type { Contact } from '../contacts/model';
 import { entryQuantity, entryTypes, money, newStockInput, number, procurement, validateStock } from './model';
 import type { StockInput, StockRecord } from './model';
 import { Field, SupplierSelect } from './Fields';
+import { ProductDefinitionSelect } from '../productDefinitions/ProductDefinitionSelect';
 
 export function StockEntryForm({ records, contacts, nextBatch, onSave, onCancel }: {
   records: StockRecord[]; contacts: Contact[]; nextBatch: number; onSave: (input: StockInput) => Promise<void>; onCancel: () => void;
 }) {
-  const [value, setValue] = useState(newStockInput);
+  const [value, setValue] = useState<StockInput>(() => ({ ...newStockInput(), colors: [{ color: '', quantity: 1 }] }));
   const [errors, setErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const busy = useRef(false);
@@ -19,17 +20,17 @@ export function StockEntryForm({ records, contacts, nextBatch, onSave, onCancel 
   const total = quantity * Math.round(value.unitCost * 100);
   async function submit(event: FormEvent) {
     event.preventDefault(); if (busy.current) return;
-    const validation = validateStock(value); setErrors(validation);
+    const validation = validateStock(value); if (!value.productDefinitionId) validation.push('Aktif bir ürün seçin.'); setErrors(validation);
     if (validation.length) { requestAnimationFrame(() => errorRef.current?.focus()); return; }
     busy.current = true; setSaving(true);
     try { await onSave(value); }
     catch (error) { setErrors([error instanceof Error ? error.message : 'Stok kaydedilemedi.']); requestAnimationFrame(() => errorRef.current?.focus()); }
     finally { busy.current = false; setSaving(false); }
   }
-  function text(key: 'name' | 'brand' | 'detail' | 'fabric' | 'grammage' | 'color' | 'series' | 'assortment' | 'note', label: string, required = false) {
-    const props = { value: value[key], required, maxLength: ['detail', 'note'].includes(key) ? 2000 : key === 'name' ? 200 : key === 'color' ? 100 : 300,
+  function text(key: 'brand' | 'detail' | 'fabric' | 'grammage' | 'series' | 'assortment' | 'note', label: string, required = false) {
+    const props = { value: value[key], required, maxLength: ['detail', 'note'].includes(key) ? 2000 : 300,
       onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => set(key, event.target.value) };
-    return <Field label={label}>{key === 'detail' || key === 'note' ? <textarea {...props} rows={3} /> : <input {...props} readOnly={!!value.existingBatch && (key === 'name' || key === 'brand')} />}</Field>;
+    return <Field label={label}>{key === 'detail' || key === 'note' ? <textarea {...props} rows={3} /> : <input {...props} readOnly={!!value.existingBatch && key === 'brand'} />}</Field>;
   }
   return <form onSubmit={submit} className="product-form">
     <p className="product-hint">* zorunlu alanlar. Tutarlar TL cinsindedir.</p>
@@ -42,22 +43,28 @@ export function StockEntryForm({ records, contacts, nextBatch, onSave, onCancel 
     <fieldset disabled={saving} className="product-card"><legend>Ürün Bilgileri</legend>
       <Field label="Parti seçimi"><select value={value.existingBatch} onChange={(event) => {
         const batch = records.find((item) => item.batch === event.target.value);
-        setValue((previous) => ({ ...previous, existingBatch: event.target.value, ...(batch ? { name: batch.name, brand: batch.brand, detail: batch.detail, fabric: batch.fabric, grammage: batch.grammage } : {}) }));
+        setValue((previous) => ({ ...previous, existingBatch: event.target.value, ...(batch ? { productDefinitionId: batch.productDefinitionId, name: batch.name, brand: batch.brand, detail: batch.detail, fabric: batch.fabric, grammage: batch.grammage } : { productDefinitionId: '', name: '' }) }));
       }}><option value="">Yeni parti oluştur</option>{batches.map((item) => <option key={item.batch} value={item.batch}>{item.batch} · {item.name} {item.brand && `· ${item.brand}`}</option>)}</select></Field>
       <p className="product-hint">Aynı ürün için farklı renk veya seri/asorti girerken mevcut partiyi seçebilirsiniz.</p>
-      <div className="product-grid">{text('name', 'Ürün Adı *', true)}{text('brand', 'Marka')}{text('detail', 'Ürün Detayı')}{text('fabric', 'Kumaş')}{text('grammage', 'Gramaj (g/m²)')}</div>
+      <div className="product-grid"><ProductDefinitionSelect value={value.productDefinitionId ?? ''} disabled={!!value.existingBatch && !!records.find((r) => r.batch === value.existingBatch)?.productDefinitionId} quickAdd onChange={(productDefinitionId, name) => setValue((previous) => ({ ...previous, productDefinitionId, name }))} />{text('brand', 'Marka')}{text('detail', 'Ürün Detayı')}{text('fabric', 'Kumaş')}{text('grammage', 'Gramaj (g/m²)')}</div>
     </fieldset>
-    <fieldset disabled={saving} className="product-card"><legend>Parti Bilgileri</legend><div className="product-grid">
+    <fieldset disabled={saving} className="product-card"><legend>Parti Bilgileri</legend>
+      <section className="product-colors" aria-labelledby="color-distribution-heading"><h2 id="color-distribution-heading">Renk Dağılımı</h2>
+        {(value.colors ?? []).map((row, index) => <div className="product-color-row" key={index}>
+          <Field label={`Renk ${index + 1} *`}><input required maxLength={100} value={row.color} onChange={(event) => setValue((previous) => ({ ...previous, colors: previous.colors!.map((item, i) => i === index ? { ...item, color: event.target.value } : item) }))} /></Field>
+          <Field label={`Adet ${index + 1} *`}><input type="number" required min="1" max="1000000000" step="1" value={Number.isNaN(row.quantity) ? '' : row.quantity} onChange={(event) => { const quantity = event.target.valueAsNumber; setValue((previous) => ({ ...previous, colors: previous.colors!.map((item, i) => i === index ? { ...item, quantity } : item) })); }} /></Field>
+          <button type="button" className="button product-secondary" disabled={value.colors!.length === 1} aria-label={`${index + 1}. renk satırını sil`} onClick={() => setValue((previous) => ({ ...previous, colors: previous.colors!.filter((_, i) => i !== index) }))}>Satırı Sil</button>
+        </div>)}
+        <button type="button" className="button product-secondary" onClick={() => setValue((previous) => ({ ...previous, colors: [...previous.colors!, { color: '', quantity: 1 }] }))}>+ Renk Ekle</button>
+      </section><div className="product-grid">
       <Field label="Parti No"><input value={value.existingBatch || `P-${String(nextBatch).padStart(4, '0')}`} readOnly /><small>Yeni parti numarası kayıt sırasında kesinleşir.</small></Field>
-      {text('color', 'Renk *', true)}{text('series', "Seri (ör. 5’li)")}{text('assortment', 'Asorti (ör. S1 / M1 / L2 / XL1)')}
+      {text('series', "Seri (ör. 5’li)")}{text('assortment', 'Asorti (ör. S1 / M1 / L2 / XL1)')}
       <Field label="Paket İçeriği (adet) *"><input type="number" min="1" max="1000000000" step="1" required value={Number.isNaN(value.packSize) ? '' : value.packSize} onChange={(event) => set('packSize', event.target.valueAsNumber)} /></Field>
-      <Field label="Paket Sayısı *"><input type="number" min="0" max="1000000000" step="1" required value={Number.isNaN(value.packCount) ? '' : value.packCount} onChange={(event) => set('packCount', event.target.valueAsNumber)} /></Field>
-      <Field label="Adet Hesaplama"><select value={value.quantityMode} onChange={(event) => setValue((previous) => ({ ...previous, quantityMode: event.target.value as StockInput['quantityMode'], quantity: entryQuantity(previous) }))}><option value="automatic">Paket içeriği × paket sayısı</option><option value="manual">Toplam adedi manuel gir</option></select></Field>
-      <Field label="Toplam Adet *"><input type="number" min="1" max="1000000000" step="1" required readOnly={value.quantityMode === 'automatic'} value={Number.isNaN(quantity) ? '' : quantity} onChange={(event) => set('quantity', event.target.valueAsNumber)} /></Field>
+      <Field label="Toplam Adet"><input readOnly value={Number.isFinite(quantity) ? number(quantity) : '—'} /><small>Renk adetlerinin toplamından otomatik hesaplanır.</small></Field>
       <Field label="Birim Maliyet (TL / adet) *"><input type="number" min="0" step="0.01" required value={Number.isNaN(value.unitCost) ? '' : value.unitCost} onChange={(event) => set('unitCost', event.target.valueAsNumber)} /></Field>
       <Field label="Giriş Tarihi *"><input type="date" required value={value.date} onChange={(event) => set('date', event.target.value)} /></Field>
       {text('note', 'Not')}
-    </div><p className="product-hint">Seri ve asorti açıklama alanlarıdır; hesaplama paket içeriğindeki adet üzerinden yapılır. Manuel adet girişinde paket karşılığı toplam adede göre gösterilir.</p></fieldset>
+    </div><p className="product-hint">Her renk aynı parti altında ayrı stok satırı olarak kaydedilir. Seri ve asorti açıklama alanlarıdır. Paket içeriği, renk bazında paket satışlarında kullanılır; paket dışındaki adetler de stokta korunur.</p></fieldset>
     <fieldset disabled={saving} className="product-card"><legend>Tedarik ve Cari Hesap</legend><div className="product-grid">
       <SupplierSelect contacts={contacts} value={value.supplierId} required={value.postAccount} onChange={(id) => set('supplierId', id)} />
       <Field label="Temin Türü"><input readOnly value={procurement[value.entryType]} /></Field>

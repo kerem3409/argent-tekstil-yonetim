@@ -1,9 +1,9 @@
-export const operations = ['Kesim', 'Nakış', 'Dikim', 'Baskı', 'Ütü', 'Paketleme', 'Diğer'] as const;
+export const operations = ['Kesim', 'Nakış', 'Dikim', 'Baskı', 'Ütü', 'Paketleme', 'Ütü & Paket', 'Diğer'] as const;
 export type Operation = typeof operations[number];
 export const stageStatuses = ['Bekliyor', 'İşlemde', 'Kısmi Geldi', 'Tamamlandı'] as const;
 export interface PlanColor { id: string; color: string; quantity: number }
-export interface ProductionPlan { id: string; number: string; productId: string; name: string; brand: string; colors: PlanColor[]; startDate: string; deliveryDate: string; note: string; status: 'Planlandı' | 'Beklemede' | 'İptal' }
-export interface PlanInput { name: string; brand: string; total: number; colors: { color: string; quantity: number }[]; startDate: string; deliveryDate: string; note: string; status: ProductionPlan['status'] }
+export interface ProductionPlan { productDefinitionId?: string; id: string; number: string; productId: string; name: string; brand: string; colors: PlanColor[]; startDate: string; deliveryDate: string; note: string; status: 'Planlandı' | 'Beklemede' | 'İptal' }
+export interface PlanInput { productDefinitionId?: string; name: string; brand: string; total: number; colors: { color: string; quantity: number }[]; startDate: string; deliveryDate: string; note: string; status: ProductionPlan['status'] }
 export interface ProductionJob { id: string; number: string; planId: string; startDate: string }
 export interface StageLine { operation: Operation; quantity: number; returned: number; priceType: 'Adet Fiyatı' | 'Toplam Fiyat'; priceMinor: number }
 export interface ProductionStage { id: string; number: string; jobId: string; companyId: string; lines: StageLine[]; date: string; status: typeof stageStatuses[number]; note: string; approvedDate: string }

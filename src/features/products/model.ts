@@ -8,6 +8,9 @@ export const procurement: Record<EntryType, string> = {
 };
 
 export interface StockInput {
+  // Eski tek renkli çağrılar desteklenir; yeni form renk dağılımı gönderir.
+  colors?: { color: string; quantity: number }[];
+  productDefinitionId?: string;
   entryType: EntryType;
   name: string; brand: string; detail: string; fabric: string; grammage: string;
   existingBatch: string;
@@ -17,6 +20,8 @@ export interface StockInput {
   postAccount: boolean; accountAction: AccountAction;
 }
 export interface StockRecord {
+  productionNo?: string; productionRowId?: string; size?: string;
+  productDefinitionId?: string;
   productId?: string; productionJobId?: string;
   id: string; batch: string; entryType: EntryType;
   name: string; brand: string; detail: string; fabric: string; grammage: string;
@@ -41,7 +46,7 @@ export interface ProductStore {
   sales?: Sale[]; openResponsibles?: OpenResponsible[];
 }
 export interface ProductionReceipt { jobId: string; stockIds: string[]; good: number; waste: number; date: string; note: string }
-export interface ProductionReceiptInput { jobId: string; productId: string; name: string; brand: string; colors: { color: string; quantity: number }[]; waste: number; date: string; note: string; unitCostMinor: number }
+export interface ProductionReceiptInput { productDefinitionId?: string; productionNo?: string; fabric?: string; grammage?: string; sizeSeries?: string; jobId: string; productId: string; name: string; brand: string; colors: { color: string; quantity: number; brand?: string; size?: string; rowId?: string }[]; waste: number; date: string; note: string; unitCostMinor: number }
 export interface AdjustmentInput { mode: 'total' | 'difference'; amount: number; date: string; description: string }
 export interface ReturnInput { quantity: number; date: string; description: string; postAccount: boolean; supplierId: string }
 
@@ -60,7 +65,7 @@ export function validDate(value: string) {
   const date = new Date(`${value}T12:00:00Z`);
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
-export const entryQuantity = (input: StockInput) => input.quantityMode === 'automatic' ? input.packSize * input.packCount : input.quantity;
+export const entryQuantity = (input: StockInput) => input.colors !== undefined ? input.colors.reduce((sum, row) => sum + row.quantity, 0) : input.quantityMode === 'automatic' ? input.packSize * input.packCount : input.quantity;
 export function purchaseAmount(quantity: number, unitCostMinor: number) {
   const amount = quantity * unitCostMinor;
   if (!Number.isSafeInteger(amount) || amount < 0) throw new Error('Toplam tutar hesaplama sınırını aşıyor.');
@@ -70,10 +75,20 @@ export function validateStock(input: StockInput): string[] {
   const errors: string[] = [];
   if (!entryTypes.includes(input.entryType)) errors.push('Giriş türü seçin.');
   if (input.name.trim().length < 2 || input.name.length > 200) errors.push('Ürün adı 2–200 karakter olmalıdır.');
-  if (!input.color.trim() || input.color.length > 100) errors.push('Renk girin (en fazla 100 karakter).');
+  if (input.colors !== undefined) {
+    if (!input.colors.length) errors.push('En az bir renk ekleyin.');
+    const names = new Set<string>();
+    for (const [index, row] of input.colors.entries()) {
+      const name = row.color.trim().toLocaleLowerCase('tr-TR');
+      if (!name || row.color.length > 100) errors.push(`${index + 1}. satırda renk girin (en fazla 100 karakter).`);
+      if (!validCount(row.quantity) || row.quantity < 1) errors.push(`${index + 1}. satırda adet pozitif tam sayı olmalıdır.`);
+      if (name && names.has(name)) errors.push('Aynı renk aynı stok girişinde iki kez girilemez.');
+      names.add(name);
+    }
+  } else if (!input.color.trim() || input.color.length > 100) errors.push('Renk girin (en fazla 100 karakter).');
   if (!validCount(input.packSize) || input.packSize < 1) errors.push('Paket içeriği pozitif bir tam sayı olmalıdır.');
-  if (!validCount(input.packCount)) errors.push('Paket sayısı sıfır veya pozitif bir tam sayı olmalıdır.');
-  if (!['automatic', 'manual'].includes(input.quantityMode) || !validCount(entryQuantity(input)) || entryQuantity(input) < 1) errors.push('Toplam adet pozitif bir tam sayı olmalıdır (en fazla 1 milyar).');
+  if (input.colors === undefined && !validCount(input.packCount)) errors.push('Paket sayısı sıfır veya pozitif bir tam sayı olmalıdır.');
+  if ((input.colors === undefined && !['automatic', 'manual'].includes(input.quantityMode)) || !validCount(entryQuantity(input)) || entryQuantity(input) < 1) errors.push('Toplam adet pozitif bir tam sayı olmalıdır (en fazla 1 milyar).');
   if (!Number.isFinite(input.unitCost) || input.unitCost < 0 || Math.abs(input.unitCost * 100 - Math.round(input.unitCost * 100)) > 0.00001) errors.push('Birim maliyet sıfır veya pozitif, en fazla 2 ondalıklı olmalıdır.');
   if (!validDate(input.date)) errors.push('Geçerli bir giriş tarihi girin.');
   if (input.postAccount && !input.supplierId) errors.push('Cari işlem için firma / tedarikçi seçin.');

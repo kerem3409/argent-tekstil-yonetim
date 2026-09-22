@@ -19,10 +19,10 @@ export function AccountChoiceField({ debtOnly = false }: { debtOnly?: boolean })
   const [enabled, setEnabled] = useState(false);
   return <><Field label="Cari hesaba işlensin mi?"><select value={enabled ? 'Evet' : 'Hayır'} onChange={(e) => setEnabled(e.target.value === 'Evet')}><option>Hayır</option><option>Evet</option></select></Field>{enabled ? <Select label="Cari İşlem Türü" name="account" values={debtOnly ? ['Borç oluştur'] : ['Borç oluştur', 'Alacaktan mahsup et']} /> : <input type="hidden" name="account" value="Hayır" />}</>;
 }
-export function CompanySelect({ contacts, role, name = 'companyId', value = '', required = false, own = false, preferredIds = [] }: { contacts: Contact[]; role?: string; name?: string; value?: string; required?: boolean; own?: boolean; preferredIds?: string[] }) {
+export function CompanySelect({ contacts, role, name = 'companyId', value = '', required = false, own = false, preferredIds = [], label }: { contacts: Contact[]; role?: string; name?: string; value?: string; required?: boolean; own?: boolean; preferredIds?: string[]; label?: string }) {
   const active = contacts.filter((item) => item.status === 'Aktif');
   const preferred = (item: Contact) => preferredIds.length ? preferredIds.includes(item.id) : !!role && item.roles.some((r) => r === role);
-  return <Field label={own ? 'İşi Yapan / Atölye' : `Firma / Kişi${required ? ' *' : ''}`}><select name={name} defaultValue={value} required={required}>
+  return <Field label={label ?? (own ? 'İşi Yapan / Atölye' : `Firma / Kişi${required ? ' *' : ''}`)}><select name={name} defaultValue={value} required={required}>
     <option value="">{own ? 'Kendi Atölyemiz' : 'Seçiniz'}</option>
     <optgroup label="Öncelikli kayıtlar">{active.filter(preferred).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup>
     <optgroup label="Diğer kayıtlar">{active.filter((item) => !preferred(item)).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup>

@@ -17,6 +17,6 @@ export function createCompletionService(production: { load(): Promise<Production
     const entries = colors.map((c) => { const planned = plan.colors.find((p) => p.id === c.colorId); quantity(c.good, 'Sağlam adet', true, true); if (!planned || c.good > planned.quantity) throw new Error('Renk bazında sağlam adet planlanandan fazla olamaz.'); return { color: planned.color, quantity: c.good }; });
     const good = entries.reduce((sum, c) => sum + c.quantity, 0); if (good + waste !== planQuantity(plan)) throw new Error('Sağlam ürün + fire / hatalı adet, toplam iş adedine eşit olmalıdır.');
     const totalCost = stages.reduce((sum, s) => sum + stageAmount(s), 0);
-    return products.receiveProduction({ jobId, productId: plan.productId, name: plan.name, brand: plan.brand, colors: entries, waste, date, note, unitCostMinor: good ? Math.round(totalCost / good) : 0 });
+    return products.receiveProduction({ jobId, productDefinitionId: plan.productDefinitionId, productId: plan.productId, name: plan.name, brand: plan.brand, colors: entries, waste, date, note, unitCostMinor: good ? Math.round(totalCost / good) : 0 });
   });
 }

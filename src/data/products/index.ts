@@ -1,6 +1,7 @@
 import { contactRepository } from '../contacts';
 import { createProductRepository } from './localStorageRepository';
 import type { ProductRepository } from './repository';
+import { productDefinitionRepository } from '../productDefinitions';
 import { browserLock } from '../shared/store';
 
 // Tek depolama belgesi stok, hareket ve geçici cari işlemi birlikte saklar.
@@ -9,4 +10,5 @@ export const productRepository: ProductRepository = createProductRepository(
   () => window.localStorage,
   contactRepository,
   (work) => browserLock('argent-products-write', work),
+  productDefinitionRepository,
 );
