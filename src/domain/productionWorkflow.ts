@@ -3,8 +3,8 @@ import type { ProductionStore, StageLine } from './production';
 import type { ProductionReceipt } from '../features/products/model';
 
 export const sizeSeries = {
-  'Çocuk': ['02 Yaş', '04 Yaş', '06 Yaş', '08 Yaş', '10 Yaş', '12 Yaş', '14 Yaş'],
-  'Yetişkin': ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL'],
+  'Çocuk': ['2 Yaş', '4 Yaş', '6 Yaş', '8 Yaş', '10 Yaş', '12 Yaş', '14 Yaş'],
+  'Yetişkin': ['S', 'M', 'L', 'XL', '2XL', '3XL'],
   'Battal Boy': ['4XL', '5XL', '6XL'],
 } as const;
 export type SizeSeries = keyof typeof sizeSeries;
@@ -14,6 +14,7 @@ export const productionStatuses = ['Kesim Bekliyor', 'Kesim Tamamlandı', 'Üret
 export interface CuttingRow { id: string; color: string; rollCount: number | null; kg: number | null; quantity: number | null }
 export interface BrandSection { id: string; brandName: string; rows: CuttingRow[] }
 export interface SizeDistribution { rowId: string; sizes: Record<string, number> }
+export interface PlannedSizeDistribution { color: string; sizes: Record<string, number> }
 export interface WorkflowStage {
   id: string; processType: string; companyId: string; rowId: string;
   sentQuantity: number; returnedQuantity: number; priceType: 'Adet Fiyatı' | 'Toplam Fiyat'; priceMinor: number;
@@ -35,20 +36,25 @@ export interface ProductionRecord {
   orderCardId?: string; orderItemId?: string; brand?: string; singleBrand?: boolean;
   selectedColorQuantities?: { color: string; quantity: number }[];
   fabricProperties?: string;
+  modelName?: string; plannedSizeDistributions?: PlannedSizeDistribution[];
   sewingCompanyId?: string; cuttingCompanyId?: string; embroideryCompanyId?: string; printingCompanyId?: string; ironingPackagingCompanyId?: string;
   legacy?: { planId: string; jobId: string; planStatus: string; missingSizes: boolean };
 }
 export interface NewProductionInput {
+  plannedSizeDistributions?: PlannedSizeDistribution[];
+  embroideryCompanyId?: string; printingCompanyId?: string; ironingPackagingCompanyId?: string;
   productDefinitionId: string; brand?: string; orderCardId?: string; orderItemId?: string; selectedColorQuantities?: { color: string; quantity: number }[]; sewingCompanyId?: string; fabricId: string; fabricName: string; gsm: string; fabricProperties?: string; sizeSeries: SizeSeries;
   cuttingMode: ProductionRecord['cuttingMode']; targetQuantity: number | null; cutterCompanyId: string;
   date: string; productInstructions: string; note: string;
 }
 export type OrderType = 'Ön Sipariş' | 'Stok İçin Üretim';
 export interface ProductionOrderCard {
+  revision?: number;
   id: string; orderNo: string; orderType: OrderType; customerId?: string; date: string; note: string;
   items: ProductionOrderItem[]; productionCardIds: string[]; createdAt: string; updatedAt: string; legacy?: boolean;
 }
 export interface ProductionOrderItem {
+  modelName?: string;
   id: string; productDefinitionId: string; productName: string;
   colorQuantities: { color: string; quantity: number }[]; totalQuantity: number;
   fabricName: string; gsm: string; fabricProperties: string; productDetails: string;
@@ -60,6 +66,27 @@ export const stageRemainingQuantity = (s: WorkflowStage) => s.sentQuantity - s.r
 export const workflowStageAmount = (s: WorkflowStage) => s.legacyLines ? s.legacyLines.reduce((sum, l) => sum + amount(l.priceType === 'Adet Fiyatı' ? l.quantity : 1, l.priceMinor), 0) : amount(s.priceType === 'Adet Fiyatı' ? s.sentQuantity : 1, s.priceMinor);
 export const subcontractRows = (records: ProductionRecord[]) => records.flatMap((p) => p.productionStages.filter((s) => s.companyId).map((s) => ({ production: p, stage: s, remaining: stageRemainingQuantity(s), total: workflowStageAmount(s) })));
 const normalized = (s: string) => s.trim().toLocaleLowerCase('tr-TR');
+export function orderAllocation(item: ProductionOrderItem, records: ProductionRecord[]) {
+  return item.colorQuantities.map((row) => {
+    const allocated = records.filter((p) => p.orderItemId === item.id).flatMap((p) => p.selectedColorQuantities ?? []).filter((r) => normalized(r.color) === normalized(row.color)).reduce((sum, r) => sum + r.quantity, 0);
+    return { ...row, allocated, remaining: row.quantity - allocated };
+  });
+}
+// Historical size keys remain readable and editable without rewriting stored documents.
+export function productionSizes(p: ProductionRecord): string[] {
+  const historical = p.sizeDistributions.flatMap((d) => Object.keys(d.sizes));
+  return [...new Set([...sizeSeries[p.sizeSeries], ...historical.filter((s) => p.sizeSeries === 'Yetişkin' ? s === 'XS' : p.sizeSeries === 'Çocuk' && ['02 Yaş', '04 Yaş', '06 Yaş', '08 Yaş'].includes(s))])];
+}
+export function validatePlannedSizes(series: SizeSeries, selected: { color: string; quantity: number }[], distributions: PlannedSizeDistribution[]) {
+  const allowed: readonly string[] = sizeSeries[series];
+  if (!allowed || distributions.length !== selected.length || new Set(distributions.map((d) => normalized(d.color))).size !== selected.length) throw new Error('Her seçilen renk için beden dağılımı girin.');
+  for (const row of selected) {
+    const d = distributions.find((d) => normalized(d.color) === normalized(row.color));
+    if (!d || Object.keys(d.sizes).some((s) => !allowed.includes(s))) throw new Error('Seçilen beden serisi veya renk geçersiz.');
+    const total = Object.values(d.sizes).reduce((sum, q) => { quantity(q, 'Beden adedi', true, true); return sum + q; }, 0);
+    if (total !== row.quantity) throw new Error(`${row.color}: beden toplamı ${total}, bu üretime ayrılan ${row.quantity} adet ile eşleşmelidir.`);
+  }
+}
 export function validateNewProduction(input: NewProductionInput) {
   requireText(input.productDefinitionId, 'Ürün'); checkDate(input.date);
   if (!Object.hasOwn(sizeSeries, input.sizeSeries)) throw new Error('Beden serisi seçin.');
@@ -93,7 +120,7 @@ export function validateCutting(sections: BrandSection[], results: boolean) {
   quantity(total, 'Toplam kesim adedi', true, !results);
 }
 export function validateSizes(p: ProductionRecord, distributions: SizeDistribution[]) {
-  const rows = cutRows(p); const allowed: readonly string[] = sizeSeries[p.sizeSeries];
+  const rows = cutRows(p); const allowed = productionSizes(p);
   if (distributions.length !== rows.length || new Set(distributions.map((d) => d.rowId)).size !== rows.length) throw new Error('Her marka / renk için beden dağılımı girin.');
   for (const d of distributions) {
     const row = rows.find((r) => r.id === d.rowId);

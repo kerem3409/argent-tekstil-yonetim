@@ -4,7 +4,7 @@ import type { StoragePort, StoreLock } from '../shared/store';
 export interface ProductDefinition { id: string; name: string; note: string; status: 'Aktif' | 'Pasif'; createdAt: string; updatedAt: string }
 export type DefinitionInput = Pick<ProductDefinition, 'name' | 'note' | 'status'>;
 export const DEFINITIONS_STORAGE_KEY = 'argent-tekstil.productDefinitions.v1';
-export const normalizedName = (name: string) => name.trim().toLocaleLowerCase('tr-TR');
+export const normalizedName = (name: string) => name.trim().replace(/\s+/g, ' ').toLocaleLowerCase('tr-TR');
 function validate(input: DefinitionInput) {
   if (typeof input.name !== 'string' || input.name.trim().length < 2 || input.name.trim().length > 200) throw new Error('Ürün adı 2–200 karakter olmalıdır.');
   if (typeof input.note !== 'string' || input.note.length > 2000) throw new Error('Not en fazla 2000 karakter olmalıdır.');
@@ -21,8 +21,8 @@ export function createProductDefinitionRepository(storage: () => StoragePort, lo
     const ids = new Set<string>(); const names = new Set<string>();
     for (const record of data.records) {
       validate(record);
-      if (typeof record.id !== 'string' || !record.id || ids.has(record.id) || names.has(normalizedName(record.name)) || !Number.isFinite(Date.parse(record.createdAt)) || !Number.isFinite(Date.parse(record.updatedAt))) throw new Error();
-      ids.add(record.id); names.add(normalizedName(record.name));
+      if (typeof record.id !== 'string' || !record.id || ids.has(record.id) || names.has(record.name.trim().toLocaleLowerCase('tr-TR')) || !Number.isFinite(Date.parse(record.createdAt)) || !Number.isFinite(Date.parse(record.updatedAt))) throw new Error();
+      ids.add(record.id); names.add(record.name.trim().toLocaleLowerCase('tr-TR'));
     }
   }, storage, lock);
   return {
@@ -36,7 +36,7 @@ export function createProductDefinitionRepository(storage: () => StoragePort, lo
       validate(input);
       return store.transact((data) => {
         if (id && !data.records.some((d) => d.id === id)) throw new Error('Ürün tanımı bulunamadı.');
-        if (data.records.some((d) => d.id !== id && normalizedName(d.name) === normalizedName(input.name))) throw new Error('Bu isimde bir ürün tanımı zaten var. Mevcut kaydı kullanın veya aktif hale getirin.');
+        if (data.records.some((d) => d.id !== id && normalizedName(d.name) === normalizedName(input.name))) throw new Error('Bu isimde bir ürün zaten kayıtlı.');
         const now = new Date().toISOString();
         if (id) {
           const record = data.records.find((d) => d.id === id);

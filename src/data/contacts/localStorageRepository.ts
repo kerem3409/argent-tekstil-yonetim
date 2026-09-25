@@ -1,3 +1,5 @@
+import type { StoreLock } from '../shared/store';
+import { normalizedContactName } from '../../domain/contactSelection.ts';
 import { normalizeContact, validateContact } from '../../features/contacts/model.ts';
 import type { Contact, ContactInput } from '../../features/contacts/model.ts';
 import type { ContactRepository } from './repository';
@@ -14,7 +16,7 @@ function isContact(value: unknown): value is Contact {
   return Object.keys(validateContact(value as Contact)).length === 0;
 }
 
-export function createLocalStorageContactRepository(getStorage: () => ContactStorage): ContactRepository {
+export function createLocalStorageContactRepository(getStorage: () => ContactStorage, lock: StoreLock = (_key, work) => work()): ContactRepository {
   function read(): Contact[] {
     let raw: string | null;
     try { raw = getStorage().getItem(CONTACTS_STORAGE_KEY); }
@@ -47,23 +49,25 @@ export function createLocalStorageContactRepository(getStorage: () => ContactSto
   return {
     async list() { return read(); },
     async get(id) { return read().find((contact) => contact.id === id) ?? null; },
-    async create(input) {
+    async create(input) { return lock(CONTACTS_STORAGE_KEY, async () => {
       const normalized = prepare(input);
       const records = read();
+      if (normalized.roles.includes('Hazır Giyim Müşterisi') && records.some((c) => c.roles.includes('Hazır Giyim Müşterisi') && normalizedContactName(c.name) === normalizedContactName(normalized.name))) throw new Error('Bu isimde bir müşteri zaten kayıtlı. Mevcut müşteriyi seçebilirsiniz.');
       const now = new Date().toISOString();
       const contact: Contact = { ...normalized, id: crypto.randomUUID(), createdAt: now, updatedAt: now };
       write([...records, contact]);
       return contact;
-    },
-    async update(id, input) {
+    }); },
+    async update(id, input) { return lock(CONTACTS_STORAGE_KEY, async () => {
       const normalized = prepare(input);
       const records = read();
       const index = records.findIndex((contact) => contact.id === id);
       if (index === -1) throw new Error('Düzenlenecek kayıt bulunamadı. Listeyi yenileyin.');
+      if (normalized.roles.includes('Hazır Giyim Müşterisi') && (!records[index].roles.includes('Hazır Giyim Müşterisi') || normalizedContactName(records[index].name) !== normalizedContactName(normalized.name)) && records.some((c) => c.id !== id && c.roles.includes('Hazır Giyim Müşterisi') && normalizedContactName(c.name) === normalizedContactName(normalized.name))) throw new Error('Bu isimde bir müşteri zaten kayıtlı. Mevcut müşteriyi seçebilirsiniz.');
       const contact: Contact = { ...records[index], ...normalized, updatedAt: new Date().toISOString() };
       records[index] = contact;
       write(records);
       return contact;
-    },
+    }); },
   };
 }

@@ -77,7 +77,7 @@ test('Eski isim kayıtları silinmez, salt okuma depolamayı değiştirmez, ayn�
 test('Tekrarlı ve geçersiz tanımlar reddedilir; bozuk veri ve başarısız yazım korunur', async () => {
   const { definitions, values, storage } = setup();
   const polo = await definitions.save({ name: 'Polo Yaka Tişört', note: '', status: 'Aktif' });
-  await assert.rejects(definitions.save({ name: ' POLO YAKA TİŞÖRT ', note: '', status: 'Aktif' }), /zaten var/);
+  await assert.rejects(definitions.save({ name: ' POLO YAKA TİŞÖRT ', note: '', status: 'Aktif' }), /zaten kayıtlı/);
   await assert.rejects(definitions.save({ name: '', note: '', status: 'Aktif' }), /Ürün adı/);
   await assert.rejects(definitions.save({ ...polo }, 'missing'), /bulunamadı/);
   const raw = values.get(DEFINITIONS_STORAGE_KEY);

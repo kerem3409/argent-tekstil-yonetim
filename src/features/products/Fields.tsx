@@ -5,7 +5,7 @@ export function Field({ label, children }: { label: string; children: ReactNode 
   return <label className="product-field"><span>{label}</span>{children}</label>;
 }
 export function SupplierSelect({ contacts, value, onChange, required = false }: { contacts: Contact[]; value: string; onChange: (value: string) => void; required?: boolean }) {
-  const active = contacts.filter((item) => item.status === 'Aktif');
+  const active = contacts.filter((item) => item.status === 'Aktif' && item.roles.includes('Hazır Giyim Tedarikçisi'));
   const preferred = active.filter((item) => item.roles.includes('Hazır Giyim Tedarikçisi'));
   const others = active.filter((item) => !item.roles.includes('Hazır Giyim Tedarikçisi'));
   return <Field label={`Firma / Tedarikçi${required ? ' *' : ''}`}><select value={value} onChange={(event) => onChange(event.target.value)} required={required}>

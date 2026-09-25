@@ -47,8 +47,8 @@ test('Yeni üretim benzersiz numara, ürün bağlantısı ve Kesim Bekliyor duru
   await f.definitions.setStatus(f.definition.id, 'Pasif'); await assert.rejects(f.repository.create(f.input), /Aktif/);
 });
 test('Çocuk, yetişkin ve battal boy beden serileri sabittir', () => {
-  assert.deepEqual(sizeSeries['Çocuk'], ['02 Yaş', '04 Yaş', '06 Yaş', '08 Yaş', '10 Yaş', '12 Yaş', '14 Yaş']);
-  assert.deepEqual(sizeSeries['Yetişkin'], ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL']);
+  assert.deepEqual(sizeSeries['Çocuk'], ['2 Yaş', '4 Yaş', '6 Yaş', '8 Yaş', '10 Yaş', '12 Yaş', '14 Yaş']);
+  assert.deepEqual(sizeSeries['Yetişkin'], ['S', 'M', 'L', 'XL', '2XL', '3XL']);
   assert.deepEqual(sizeSeries['Battal Boy'], ['4XL', '5XL', '6XL']);
 });
 test('Birden çok marka ve renkli föyde kg/adet boş tutulur; aynı föye sonuç girilir', async () => {

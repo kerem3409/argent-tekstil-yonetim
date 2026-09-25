@@ -59,25 +59,7 @@ export function ContactForm({ initial, onSave, onCancel }: Props) {
     <p className="contact-form-hint">* işaretli alanlar zorunludur. Diğer bilgileri daha sonra tamamlayabilirsiniz.</p>
     {Object.values(errors).some(Boolean) && <p className="contact-alert" role="alert">Lütfen işaretlenen alanları kontrol edin.</p>}
     {saveError && <p className="contact-alert" role="alert">{saveError}</p>}
-    <fieldset className="contact-form-section" disabled={saving}>
-      <legend>Temel Bilgiler</legend>
-      <div className="contact-form-grid">
-        <div className="contact-field"><label htmlFor="contact-type">Kayıt Türü *</label><select id="contact-type" name="type" value={value.type} onChange={(e) => set('type', e.target.value as ContactInput['type'])}><option>Firma</option><option>Şahıs</option></select></div>
-        <div className="contact-field"><label htmlFor="contact-status">Durum *</label><select id="contact-status" name="status" value={value.status} onChange={(e) => set('status', e.target.value as ContactInput['status'])}><option>Aktif</option><option>Pasif</option></select></div>
-        {field('name', value.type === 'Firma' ? 'Firma Adı / Unvanı' : 'Adı Soyadı / Unvanı', { limit: 200, required: true })}
-        {field('authorizedPerson', 'Yetkili Adı Soyadı', { limit: 150 })}
-        {field('phone', 'Telefon', { limit: 30, type: 'tel' })}
-        {field('email', 'E-posta', { limit: 254, type: 'email' })}
-        {field('address', 'Adres', { limit: 1000, multiline: true })}
-        {field('note', 'Not', { limit: 2000, multiline: true })}
-      </div>
-    </fieldset>
-    <fieldset className="contact-form-section" disabled={saving}><legend>Fatura Bilgileri</legend><div className="contact-form-grid">
-      {field('taxOffice', 'Vergi Dairesi', { limit: 150 })}
-      {field('taxNumber', 'Vergi No / T.C. No', { limit: 11 })}
-      {field('billingAddress', 'Fatura Adresi', { limit: 1000, multiline: true })}
-      <div className="contact-field"><label htmlFor="contact-invoice">E-Fatura / E-Arşiv Durumu</label><select id="contact-invoice" value={value.invoiceStatus} onChange={(e) => set('invoiceStatus', e.target.value as ContactInput['invoiceStatus'])}><option value="">Belirtilmedi</option><option>E-Fatura</option><option>E-Arşiv</option></select></div>
-    </div></fieldset>
+    <fieldset className="contact-form-section" disabled={saving}><legend>Kayıt Türü</legend>        <div className="contact-field"><label htmlFor="contact-type">Kayıt Türü *</label><select id="contact-type" name="type" value={value.type} onChange={(e) => set('type', e.target.value as ContactInput['type'])}><option>Firma</option><option>Şahıs</option></select></div></fieldset>
     <fieldset className="contact-form-section" disabled={saving} aria-describedby={errors.roles ? 'error-roles' : undefined}><legend>Roller *</legend>
       <p className="contact-form-hint">Birden fazla rol seçebilirsiniz.</p>
       <div className="contact-choice-grid">{contactRoles.map((role) => <label className="contact-choice" key={role}><input type="checkbox" name="roles" value={role} checked={value.roles.includes(role)} aria-invalid={!!errors.roles} aria-describedby={errors.roles ? 'error-roles' : undefined} onChange={(event) => {
@@ -87,6 +69,26 @@ export function ContactForm({ initial, onSave, onCancel }: Props) {
       }} />{role}</label>)}</div>{errorFor('roles')}
       {value.roles.includes('Fasoncu') && <fieldset className="contact-services"><legend>Fason Hizmetleri</legend><p className="contact-form-hint">İsteğe bağlı, birden fazla hizmet seçebilirsiniz.</p><div className="contact-choice-grid">{subcontractServices.map((service) => <label key={service} className="contact-choice"><input type="checkbox" name="services" checked={value.services.includes(service)} onChange={(event) => set('services', event.target.checked ? [...value.services, service] : value.services.filter((item) => item !== service))} />{service}</label>)}</div></fieldset>}
     </fieldset>
+    <fieldset className="contact-form-section" disabled={saving}>
+      <legend>Temel Bilgiler</legend>
+      <div className="contact-form-grid">
+
+        <div className="contact-field"><label htmlFor="contact-status">Durum *</label><select id="contact-status" name="status" value={value.status} onChange={(e) => set('status', e.target.value as ContactInput['status'])}><option>Aktif</option><option>Pasif</option></select></div>
+        {field('name', value.type === 'Firma' ? 'Firma / Unvan' : 'Adı Soyadı', { limit: 200, required: true })}
+        {value.type === 'Firma' && field('authorizedPerson', 'Yetkili Adı Soyadı', { limit: 150 })}
+        {field('phone', 'Telefon', { limit: 30, type: 'tel' })}
+        {field('email', 'E-posta', { limit: 254, type: 'email' })}
+        {field('address', 'Adres', { limit: 1000, multiline: true })}
+
+      </div>
+    </fieldset>
+    {value.type === 'Firma' && <fieldset className="contact-form-section" disabled={saving}><legend>Fatura Bilgileri</legend><div className="contact-form-grid">
+      {field('taxOffice', 'Vergi Dairesi', { limit: 150 })}
+      {field('taxNumber', 'Vergi No / T.C. No', { limit: 11 })}
+      {field('billingAddress', 'Fatura Adresi', { limit: 1000, multiline: true })}
+      <div className="contact-field"><label htmlFor="contact-invoice">E-Fatura / E-Arşiv Durumu</label><select id="contact-invoice" value={value.invoiceStatus} onChange={(e) => set('invoiceStatus', e.target.value as ContactInput['invoiceStatus'])}><option value="">Belirtilmedi</option><option>E-Fatura</option><option>E-Arşiv</option></select></div>
+    </div></fieldset>}
+    <fieldset className="contact-form-section" disabled={saving}><legend>Not / Diğer Bilgiler</legend>{field('note', 'Not', { limit: 2000, multiline: true })}</fieldset>
     <div className="contact-actions"><button type="button" className="button contact-secondary" disabled={saving} onClick={onCancel}>Vazgeç</button><button type="submit" className="button" disabled={saving}>{saving ? 'Kaydediliyor…' : 'Kaydet'}</button></div>
   </form>;
 }

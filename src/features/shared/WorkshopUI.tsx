@@ -1,6 +1,8 @@
 import { Component, useEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { contactRepository } from '../../data/contacts';
+import { selectableContacts } from '../../domain/contactSelection';
+import type { ContactRole, SubcontractService } from '../contacts/model';
 import type { Contact } from '../contacts/model';
 import './workshop.css';
 
@@ -19,14 +21,16 @@ export function AccountChoiceField({ debtOnly = false }: { debtOnly?: boolean })
   const [enabled, setEnabled] = useState(false);
   return <><Field label="Cari hesaba işlensin mi?"><select value={enabled ? 'Evet' : 'Hayır'} onChange={(e) => setEnabled(e.target.value === 'Evet')}><option>Hayır</option><option>Evet</option></select></Field>{enabled ? <Select label="Cari İşlem Türü" name="account" values={debtOnly ? ['Borç oluştur'] : ['Borç oluştur', 'Alacaktan mahsup et']} /> : <input type="hidden" name="account" value="Hayır" />}</>;
 }
-export function CompanySelect({ contacts, role, name = 'companyId', value = '', required = false, own = false, preferredIds = [], label }: { contacts: Contact[]; role?: string; name?: string; value?: string; required?: boolean; own?: boolean; preferredIds?: string[]; label?: string }) {
-  const active = contacts.filter((item) => item.status === 'Aktif');
-  const preferred = (item: Contact) => preferredIds.length ? preferredIds.includes(item.id) : !!role && item.roles.some((r) => r === role);
-  return <Field label={label ?? (own ? 'İşi Yapan / Atölye' : `Firma / Kişi${required ? ' *' : ''}`)}><select name={name} defaultValue={value} required={required}>
+export function CompanySelect({ contacts, role, name = 'companyId', value = '', required = false, own = false, preferredIds, service, label }: { contacts: Contact[]; role?: ContactRole; service?: SubcontractService; name?: string; value?: string; required?: boolean; own?: boolean; preferredIds?: string[]; label?: string }) {
+  const [selected, setSelected] = useState(value);
+  const active = selectableContacts(contacts, role, service).filter((item) => !preferredIds || preferredIds.includes(item.id));
+  const preferred = (item: Contact) => preferredIds?.length ? preferredIds.includes(item.id) : !!role && item.roles.some((r) => r === role);
+  return <Field label={label ?? (own ? 'İşi Yapan / Atölye' : `Firma / Kişi${required ? ' *' : ''}`)}><select name={name} value={selected} onChange={(e) => setSelected(e.target.value)} required={required}>
     <option value="">{own ? 'Kendi Atölyemiz' : 'Seçiniz'}</option>
+    {selected && !active.some((item) => item.id === selected) && <option value={selected} disabled>{contacts.find((item) => item.id === selected)?.name ?? 'Eski firma kaydı'} (mevcut kayıt)</option>}
     <optgroup label="Öncelikli kayıtlar">{active.filter(preferred).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup>
     <optgroup label="Diğer kayıtlar">{active.filter((item) => !preferred(item)).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup>
-  </select></Field>;
+  </select>{selected && !active.some((item) => item.id === selected) && <input type="hidden" name={name} value={selected} />}</Field>;
 }
 export const text = (form: FormData, key: string) => String(form.get(key) ?? '').trim();
 export const numeric = (form: FormData, key: string) => { const value = text(form, key); return value ? Number(value) : NaN; };
