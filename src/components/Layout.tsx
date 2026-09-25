@@ -32,7 +32,8 @@ export function Layout() {
         <span className="workspace-label">Argent Tekstil</span>
       </header>
       <main id="main-content" key={pathname} tabIndex={-1} aria-label={currentPage?.title ?? 'Ana içerik'}><Outlet /></main>
-      <footer className="workspace-footer"><span>Argent Tekstil · Atölye Yönetimi</span><span>v0.1</span></footer>
+      <footer className="workspace-footer"><span>Argent Tekstil · Atölye Yönetimi</span></footer>
+      <small className="version-label">Sürüm: {typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : 'local'}</small>
     </div>
   </div>;
 }
