@@ -10,7 +10,7 @@ import { completionTargets, cuttingTotal, cutRows, normalizeOrderCards, normaliz
 import type { BrandSection, CompletionLine, NewProductionInput, OrderType, Process, ProductionOrderCard, ProductionOrderItem, ProductionRecord, SizeDistribution, WorkflowStage, WorkflowStore } from '../../domain/productionWorkflow';
 
 export type OrderItemInput = Omit<ProductionOrderItem, 'id' | 'productName' | 'totalQuantity'> & { id?: string };
-export interface OrderInput { orderType: OrderType; customerId?: string; date: string; note: string; items?: OrderItemInput[] }
+export interface OrderInput { orderType: OrderType; customerId?: string; date: string; dueDate?: string | null; note: string; items?: OrderItemInput[] }
 export type ProductionUpdate = Pick<ProductionRecord, 'brand' | 'sizeSeries' | 'cutterCompanyId' | 'sewingCompanyId' | 'embroideryCompanyId' | 'printingCompanyId' | 'ironingPackagingCompanyId' | 'fabricProperties' | 'productInstructions' | 'note' | 'plannedSizeDistributions' | 'sizeDistribution'>;
 export const PRODUCTION_STORAGE_KEY = 'argent-tekstil.production.v1';
 export interface WorkflowStageInput { processType: Process; companyId: string; rowId: string; sentQuantity: number; returnedQuantity: number; priceType: WorkflowStage['priceType']; price: number; sentDate: string; returnDate: string; status: WorkflowStage['status']; note: string }
@@ -93,13 +93,25 @@ export function createWorkflowRepository(storage: () => StoragePort, deps: Depen
   return {
     async list() { const data = await store.load(); return records(data); },
     async listOrders() { const data = await store.load(); return normalizeOrderCards(data, await records(data)); },
+    async setOrderArchived(id: string, revision: number, archived: boolean) {
+      return store.transact(async (data) => {
+        const order = normalizeOrderCards(data, await records(data)).find((o) => o.id === id);
+        if (!order) throw new Error('Sipariş kartı bulunamadı.');
+        if ((order.revision ?? 0) !== revision) throw new Error('Sipariş başka bir işlemde değişti. Sayfayı yenileyip tekrar deneyin.');
+        const now = new Date().toISOString();
+        const updated = { ...order, archived, archivedAt: archived ? now : null, updatedAt: now, revision: revision + 1 };
+        data.orderCards = [...(data.orderCards ?? []).filter((o) => o.id !== id), updated];
+        return updated;
+      });
+    },
     async createOrder(input: OrderInput) {
       if (!['Ön Sipariş', 'Stok İçin Üretim'].includes(input.orderType)) throw new Error('Sipariş türü seçin.');
       checkDate(input.date); if (input.note.length > 2000) throw new Error('Not en fazla 2000 karakter olabilir.');
+      if (input.dueDate) checkDate(input.dueDate);
       if (input.orderType === 'Ön Sipariş' && !input.customerId) throw new Error('Ön siparişte müşteri seçin.');
       if (input.customerId) await eligible(input.customerId, 'Hazır Giyim Müşterisi');
       const items = await orderItems(input.items);
-      return store.transact((data) => { const now = new Date().toISOString(); const index = data.nextOrder ?? 1; data.nextOrder = index + 1; const order: ProductionOrderCard = { id: uid(), orderNo: `SP-${String(index).padStart(4, '0')}`, revision: 0, orderType: input.orderType, customerId: input.customerId || undefined, date: input.date, note: input.note.trim(), items, productionCardIds: [], createdAt: now, updatedAt: now }; (data.orderCards ??= []).push(order); return order; });
+      return store.transact((data) => { const now = new Date().toISOString(); const index = data.nextOrder ?? 1; data.nextOrder = index + 1; const order: ProductionOrderCard = { id: uid(), orderNo: `SP-${String(index).padStart(4, '0')}`, revision: 0, orderType: input.orderType, customerId: input.customerId || undefined, date: input.date, dueDate: input.dueDate || undefined, note: input.note.trim(), items, productionCardIds: [], createdAt: now, updatedAt: now }; (data.orderCards ??= []).push(order); return order; });
     },
     async updateOrder(id: string, revision: number, input: OrderInput) {
       return store.transact(async (data) => {
@@ -109,6 +121,7 @@ export function createWorkflowRepository(storage: () => StoragePort, deps: Depen
         if ((order.revision ?? 0) !== revision) throw new Error('Sipariş başka bir işlemde değişti. Sayfayı yenileyip tekrar deneyin.');
         if (input.orderType !== order.orderType) throw new Error('Kaydedilmiş sipariş türü değiştirilemez.');
         checkDate(input.date);
+        if (input.dueDate) checkDate(input.dueDate);
         if (input.note.length > 2000) throw new Error('Not en fazla 2000 karakter olabilir.');
         if (input.orderType === 'Ön Sipariş' && !input.customerId) throw new Error('Ön siparişte müşteri seçin.');
         if (input.customerId !== order.customerId) await eligible(input.customerId ?? '', 'Hazır Giyim Müşterisi');
@@ -122,7 +135,7 @@ export function createWorkflowRepository(storage: () => StoragePort, deps: Depen
           if (used.length && !next) throw new Error('Üretime aktarılmış sipariş kalemi silinemez.');
           for (const row of used) if ((next?.colorQuantities.find((r) => colorKey(r.color) === colorKey(row.color))?.quantity ?? 0) < row.allocated) throw new Error(`Bu renkten ${row.allocated} adet daha önce üretime aktarılmıştır. Sipariş adedi ${row.allocated}'ün altına düşürülemez. (${row.color})`);
         }
-        const updated = { ...order, customerId: input.customerId || undefined, date: input.date, note: input.note.trim(), items, revision: revision + 1, updatedAt: new Date().toISOString() };
+        const updated = { ...order, customerId: input.customerId || undefined, date: input.date, dueDate: input.dueDate || undefined, note: input.note.trim(), items, revision: revision + 1, updatedAt: new Date().toISOString() };
         data.orderCards = [...(data.orderCards ?? []).filter((o) => o.id !== id), updated];
         return updated;
       });
@@ -179,7 +192,7 @@ export function createWorkflowRepository(storage: () => StoragePort, deps: Depen
         const p: ProductionRecord = { ...input, id: uid(), productionNo: `UR-${String(index).padStart(5, '0')}`, productId: uid(), productName: item?.modelName ?? item?.productName ?? definition.name, ...(item ? { modelName: item.modelName ?? item.productName } : {}), brand: input.brand?.trim() || 'Marka belirtilmemiş', ...(orderId ? { orderCardId: orderId } : {}), singleBrand: !!input.brand,
           ...(input.orderItemId ? { orderItemId: input.orderItemId } : {}), ...(selected.length ? { selectedColorQuantities: structuredClone(selected) } : {}), fabricName: fabric?.name ?? fabricName, gsm, fabricProperties, productInstructions: item?.productDetails ?? input.productInstructions,
           targetQuantity: input.cuttingMode === 'Hedef Adet' ? input.targetQuantity : null,
-          status: 'Kesim Bekliyor', cuttingSheet: { brandSections: input.brand && selected.length ? [{ id: uid(), brandName: input.brand.trim(), rows: selected.map((row) => ({ id: uid(), color: row.color, rollCount: 1, kg: null, quantity: null })) }] : [], completedAt: '' }, sizeDistributions: [], ...(input.sizeDistribution ? { sizeDistribution: structuredClone(input.sizeDistribution) } : {}), productionStages: [], completion: null, stockTransfer: null, createdAt: now, updatedAt: now, revision: 0 };
+          status: 'Kesim Bekliyor', cuttingSheet: { brandSections: input.brand && selected.length ? [{ id: uid(), brandName: input.brand.trim(), rows: selected.map((row) => ({ id: uid(), color: row.color, rollCount: null, kg: null, quantity: null })) }] : [], completedAt: '' }, sizeDistributions: [], ...(input.sizeDistribution ? { sizeDistribution: structuredClone(input.sizeDistribution) } : {}), productionStages: [], completion: null, stockTransfer: null, createdAt: now, updatedAt: now, revision: 0 };
         (data.productions ??= []).push(p); if (order) { order.productionCardIds.push(p.id); order.updatedAt = now; order.revision = (order.revision ?? 0) + 1; } return p;
       });
     },

@@ -16,7 +16,7 @@ export function Layout() {
       <div className="brand"><span className="brand-mark">A</span><div><strong>ARGENT <span>TEKSTİL</span></strong><small>Atölye Yönetimi</small></div></div>
       <nav aria-label="Ana menü" onClick={(event) => { if ((event.target as HTMLElement).closest('a')) setMenuOpen(false); }}>
         <NavLink to="/" end className="home-link"><Icon name="home" />Ana Sayfa</NavLink>
-        {navigation.map((group) => <details key={group.title} open className="nav-group">
+        {navigation.map((group) => <details key={group.title} className="nav-group">
           <summary><Icon name={group.symbol} /><span>{group.title}</span><span className="chevron">⌄</span></summary>
           <div className="nav-children">{group.pages.map((page, index) => <Fragment key={page.id}>
             {page.subgroup && group.pages[index - 1]?.subgroup !== page.subgroup && <div className="nav-subgroup">{page.subgroup}</div>}

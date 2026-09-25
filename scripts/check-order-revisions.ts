@@ -121,7 +121,7 @@ test('Üretim düzenlemesi güvenli alanlarla sınırlıdır; kesim sonrası ser
   p = await f.current(p.id); assert.equal(p.note, 'Yeni not'); assert.equal(p.sizeSeries, 'Battal Boy'); assert.equal(p.orderItemId, f.order.items[0].id);
   await assert.rejects(f.repo.updateProduction(p.id, p.revision - 1, p), /başka bir işlemde/);
   await assert.rejects(f.repo.updateProduction(p.id, p.revision, { ...p, brand: 'TOMMY' }), /yeni Üretim Kartı/);
-  const sections = structuredClone(p.cuttingSheet.brandSections); sections[0].rows[0].kg = 30; sections[0].rows[0].quantity = 500;
+  const sections = structuredClone(p.cuttingSheet.brandSections); sections[0].rows[0].rollCount = 2; sections[0].rows[0].kg = 30; sections[0].rows[0].quantity = 500;
   await f.repo.saveCutting(p.id, p.revision, sections, true); p = await f.current(p.id);
   assert.deepEqual(p.sizeDistributions[0].sizes, { '4XL': 500 });
   await assert.rejects(f.repo.updateProduction(p.id, p.revision, { ...p, sizeSeries: 'Yetişkin' }), /Kesim tamamlandıktan/);
@@ -134,14 +134,14 @@ test('Üretim düzenlemesi güvenli alanlarla sınırlıdır; kesim sonrası ser
 test('Kesim kaydı rezervasyon renklerini ve miktar sınırını aşamaz', async () => {
   const f = await setup(); const p = await f.repo.create(f.input()); const sections = structuredClone(p.cuttingSheet.brandSections);
   sections[0].rows[0].color = 'Mavi'; await assert.rejects(f.repo.saveCutting(p.id, 0, sections, false), /olmayan renk/);
-  sections[0].rows[0].color = 'Siyah'; sections[0].rows[0].quantity = 501; sections[0].rows[0].kg = 30;
+  sections[0].rows[0].color = 'Siyah'; sections[0].rows[0].quantity = 501; sections[0].rows[0].rollCount = 2; sections[0].rows[0].kg = 30;
   await assert.rejects(f.repo.saveCutting(p.id, 0, sections, true), /ayrılan miktarı aşamaz/);
   assert.equal((await f.current(p.id)).revision, 0);
 });
 
 test('Başlamış fason işlemin firması değişmez; kart güncellemesi rezervasyon veya bağlantıları değiştiremez', async () => {
   const f = await setup(); let p = await f.repo.create(f.input());
-  const sections = structuredClone(p.cuttingSheet.brandSections); sections[0].rows[0].kg = 30; sections[0].rows[0].quantity = 500;
+  const sections = structuredClone(p.cuttingSheet.brandSections); sections[0].rows[0].rollCount = 2; sections[0].rows[0].kg = 30; sections[0].rows[0].quantity = 500;
   await f.repo.saveCutting(p.id, p.revision, sections, true); p = await f.current(p.id);
   const stage = { processType: 'Dikim' as const, companyId: f.tailor.id, rowId: sections[0].rows[0].id, sentQuantity: 500, returnedQuantity: 0, priceType: 'Adet Fiyatı' as const, price: 2, sentDate: p.date, returnDate: '', status: 'İşlemde' as const, note: '' };
   await assert.rejects(f.repo.addStage(p.id, p.revision, { ...stage, companyId: f.cutter.id }), /Dikim hizmeti/);
@@ -170,7 +170,7 @@ test('Eski model/beden belgeleri salt okumada değişmez ve eski bedenler koruna
   const data = JSON.parse(f.values.get(PRODUCTION_STORAGE_KEY)!);
   delete data.orderCards[0].revision; delete data.orderCards[0].items[0].modelName;
   const old = data.productions[0]; delete old.modelName; delete old.plannedSizeDistributions;
-  old.cuttingSheet.completedAt = '2026-09-25'; old.cuttingSheet.brandSections[0].rows[0].kg = 30; old.cuttingSheet.brandSections[0].rows[0].quantity = 500;
+  old.cuttingSheet.completedAt = '2026-09-25'; old.cuttingSheet.brandSections[0].rows[0].rollCount = 2; old.cuttingSheet.brandSections[0].rows[0].kg = 30; old.cuttingSheet.brandSections[0].rows[0].quantity = 500;
   old.sizeDistributions = [{ rowId: old.cuttingSheet.brandSections[0].rows[0].id, sizes: { XS: 100, S: 400 } }];
   const raw = JSON.stringify(data); f.values.set(PRODUCTION_STORAGE_KEY, raw);
   const reloaded = createWorkflowRepository(() => f.storage, f.deps, f.lock);
@@ -180,4 +180,78 @@ test('Eski model/beden belgeleri salt okumada değişmez ve eski bedenler koruna
   await reloaded.updateProduction(p.id, loaded.revision, { ...loaded, note: 'Eski kayıt güncellendi' });
   assert.deepEqual((await reloaded.list())[0].sizeDistributions[0].sizes, { XS: 100, S: 400 });
   assert.throws(() => validatePlannedSizes('Çocuk', [{ color: 'Beyaz', quantity: 1 }], [{ color: 'Beyaz', sizes: { '02 Yaş': 1 } }]), /beden serisi/);
+});
+
+test('Sipariş arşivi kalıcıdır, üretim tahsislerini korur ve eski revizyonu reddeder', async () => {
+  const f = await setup();
+  const p = await f.repo.create(f.input());
+  const before = await f.currentOrder();
+  const archived = await f.repo.setOrderArchived(before.id, before.revision!, true);
+  assert.equal(archived.archived, true); assert.ok(archived.archivedAt);
+  const reloaded = createWorkflowRepository(() => f.storage, f.deps, f.lock);
+  assert.equal((await reloaded.listOrders()).find((o) => o.id === before.id)?.archived, true);
+  assert.deepEqual(await f.current(p.id), p);
+  assert.deepEqual(archived.productionCardIds, [p.id]);
+  assert.equal(orderAllocation(archived.items[0], await f.repo.list())[0].allocated, 500);
+  await assert.rejects(f.repo.updateOrder(before.id, before.revision!, { ...before, note: 'Eski form' }), /başka bir işlemde/);
+  await assert.rejects(f.repo.setOrderArchived(before.id, before.revision!, false), /başka bir işlemde/);
+  const restored = await reloaded.setOrderArchived(archived.id, archived.revision!, false);
+  assert.equal(restored.archived, false); assert.equal(restored.archivedAt, null);
+  assert.deepEqual(restored.productionCardIds, [p.id]);
+  assert.equal(restored.createdAt, before.createdAt);
+  assert.equal((await reloaded.listOrders()).length, 1);
+});
+
+test('Termin oluşturulur, güncellenir, temizlenir; eski eksik alanlar salt okumada korunur', async () => {
+  const f = await setup();
+  let order = await f.repo.createOrder({ ...f.order, dueDate: '2026-10-10' });
+  assert.equal(order.dueDate, '2026-10-10');
+  order = await f.repo.updateOrder(order.id, order.revision!, { ...order, dueDate: '2026-10-20' });
+  assert.equal((await f.repo.listOrders()).find((o) => o.id === order.id)?.dueDate, '2026-10-20');
+  await assert.rejects(f.repo.updateOrder(order.id, order.revision!, { ...order, dueDate: 'not-a-date' }), /tarih/i);
+  order = await f.repo.updateOrder(order.id, order.revision!, { ...order, dueDate: '' });
+  assert.equal(order.dueDate, undefined);
+  const raw = JSON.parse(f.values.get(PRODUCTION_STORAGE_KEY)!);
+  delete raw.orderCards[0].createdAt; delete raw.orderCards[0].archived; delete raw.orderCards[0].dueDate;
+  f.values.set(PRODUCTION_STORAGE_KEY, JSON.stringify(raw));
+  const snapshot = f.values.get(PRODUCTION_STORAGE_KEY);
+  for (let i = 0; i < 3; i++) {
+    const read = await f.repo.listOrders(); assert.equal(read.length, 2); assert.equal(!!read[0].archived, false);
+  }
+  assert.equal(f.values.get(PRODUCTION_STORAGE_KEY), snapshot);
+});
+
+test('Sipariş sıralaması createdAt kullanır, eşit zamanda numara ve eski kayıtta tarih kullanır', async () => {
+  const { newestOrdersFirst } = await import('../src/domain/productionWorkflow.ts');
+  const f = await setup();
+  const older = { ...f.order, id: 'old', orderNo: 'SP-0001', date: '2027-01-01', createdAt: '2026-09-01T09:00:00Z' };
+  const newer = { ...f.order, id: 'new', orderNo: 'SP-0002', date: '2025-01-01', createdAt: '2026-09-02T09:00:00Z' };
+  const tied = { ...newer, id: 'tie', orderNo: 'SP-0003' };
+  const legacy = { ...older, id: 'legacy', createdAt: undefined, date: '2020-01-01' } as unknown as typeof older;
+  const records = [older, newer, legacy, tied];
+  assert.deepEqual(newestOrdersFirst(records).map((o) => o.id), ['tie', 'new', 'old', 'legacy']);
+  assert.deepEqual(records.map((o) => o.id), ['old', 'new', 'legacy', 'tie']);
+});
+
+test('Yeni üretimin kesim sonuçları boş başlar, sonuç girilmeden tamamlanamaz', async () => {
+  const f = await setup(); const p = await f.repo.create(f.input());
+  const row = p.cuttingSheet.brandSections[0].rows[0];
+  assert.equal(row.rollCount, null); assert.equal(row.kg, null); assert.equal(row.quantity, null);
+  assert.equal((await f.repo.list()).length, 1);
+  await assert.rejects(f.repo.saveCutting(p.id, p.revision, p.cuttingSheet.brandSections, true), /Top sayısı/);
+});
+
+test('Eski üretimden türetilen sipariş arşivlenip açılırken kopyalanmaz', async () => {
+  const f = await setup(); const p = await f.repo.create(f.input());
+  const data = JSON.parse(f.values.get(PRODUCTION_STORAGE_KEY)!); data.orderCards = [];
+  f.values.set(PRODUCTION_STORAGE_KEY, JSON.stringify(data));
+  const legacy = (await f.repo.listOrders())[0]; assert.equal(legacy.legacy, true);
+  let archived = await f.repo.setOrderArchived(legacy.id, legacy.revision ?? 0, true);
+  for (let i = 0; i < 3; i++) {
+    const orders = await f.repo.listOrders(); assert.equal(orders.length, 1); assert.equal(orders[0].archived, true);
+  }
+  archived = await f.repo.setOrderArchived(archived.id, archived.revision!, false);
+  assert.deepEqual(archived.productionCardIds, [p.id]);
+  assert.deepEqual(await f.current(p.id), p);
+  assert.equal(JSON.parse(f.values.get(PRODUCTION_STORAGE_KEY)!).orderCards.length, 1);
 });

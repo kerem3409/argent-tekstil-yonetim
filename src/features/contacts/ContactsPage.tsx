@@ -10,12 +10,12 @@ import './contacts.css';
 
 type LoadState = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; records: Contact[] };
 
-export function ContactsPage() {
+export function ContactsPage({ customersOnly = false }: { customersOnly?: boolean }) {
   const [params, setParams] = useSearchParams();
   const mode = params.get('islem');
   const id = params.get('id');
   const query = params.get('ara') ?? '';
-  const role = params.get('rol') ?? '';
+  const role = customersOnly ? 'Hazır Giyim Müşterisi' : params.get('rol') ?? '';
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const [notice, setNotice] = useState('');
@@ -69,7 +69,7 @@ export function ContactsPage() {
 
   const selected = state.status === 'ready' ? state.records.find((contact) => contact.id === id) : undefined;
   const isForm = mode === 'yeni' || mode === 'duzenle';
-  const title = mode === 'yeni' ? 'Yeni Firma / Kişi' : mode === 'duzenle' ? 'Firma / Kişi Düzenle' : mode === 'detay' ? 'Firma / Kişi Detayı' : 'Firma / Kişi Listesi';
+  const title = mode === 'yeni' ? 'Yeni Firma / Kişi' : mode === 'duzenle' ? 'Firma / Kişi Düzenle' : mode === 'detay' ? 'Firma / Kişi Detayı' : customersOnly ? 'Müşteriler' : 'Firma / Kişi Listesi';
   const filtered = state.status === 'ready' ? filterContacts(state.records, query, role) : [];
 
   return <div className="contacts-module">
@@ -81,11 +81,11 @@ export function ContactsPage() {
     {state.status === 'error' && <div className="table-panel feedback" role="alert"><p>{state.message}</p><button className="button" onClick={() => setAttempt((previous) => previous + 1)}>Tekrar dene</button></div>}
     {state.status === 'ready' && <>
       {mode && mode !== 'yeni' && (!selected || !['duzenle', 'detay'].includes(mode)) ? <div className="table-panel feedback"><p>Kayıt veya ekran bulunamadı. Listeden bir kayıt seçin.</p><button className="button" onClick={() => navigate()}>Listeye dön</button></div>
-        : isForm ? <ContactForm key={`${mode}-${id ?? ''}`} initial={selected ?? emptyContact} onSave={save} onCancel={() => navigate()} />
+        : isForm ? <ContactForm key={`${mode}-${id ?? ''}`} initial={selected ?? (customersOnly ? { ...emptyContact, roles: ['Hazır Giyim Müşterisi'] } : emptyContact)} onSave={save} onCancel={() => navigate()} />
         : mode === 'detay' && selected ? <ContactDetails contact={selected} />
         : <section className="table-panel" aria-label="Firma / kişi kayıtları">
           <div className="contact-toolbar"><div className="contact-field"><label htmlFor="contact-search">Ara</label><input id="contact-search" type="search" placeholder="Ad, yetkili, telefon veya e-posta" value={query} onChange={(event) => filter('ara', event.target.value)} /></div>
-            <div className="contact-field"><label htmlFor="contact-role-filter">Rol</label><select id="contact-role-filter" value={role} onChange={(event) => filter('rol', event.target.value)}><option value="">Tüm roller</option>{contactRoles.map((item) => <option key={item}>{item}</option>)}</select></div>
+            <div className="contact-field"><label htmlFor="contact-role-filter">Rol</label><select id="contact-role-filter" disabled={customersOnly} value={role} onChange={(event) => filter('rol', event.target.value)}><option value="">Tüm roller</option>{contactRoles.map((item) => <option key={item}>{item}</option>)}</select></div>
             <span className="record-count" role="status">{filtered.length} / {state.records.length} kayıt</span>
           </div>
           <div className="table-scroll"><table className="contact-table"><caption className="sr-only">Firma / Kişi Listesi</caption><thead><tr>{['Firma / Kişi Adı', 'Yetkili', 'Telefon', 'Roller', 'Durum', 'İşlemler'].map((column) => <th key={column} scope="col">{column}</th>)}</tr></thead><tbody>

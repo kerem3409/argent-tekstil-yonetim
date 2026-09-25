@@ -19,7 +19,7 @@ test('Sipariş Kartı: gerçek form etkileşimleri, kalıcı kayıt ve eski rout
   newDOM();
   const { createRoot } = await import('react-dom/client');
   const { HashRouter } = await import('react-router-dom');
-  const server = await createServer({ configFile: false, plugins: [react()], server: { middlewareMode: true }, appType: 'custom' });
+  const server = await createServer({ configFile: false, plugins: [react()], server: { middlewareMode: true, ws: false }, appType: 'custom' });
   try {
     const { App } = await server.ssrLoadModule('/src/app/App.tsx');
     const { workflowRepository } = await server.ssrLoadModule('/src/data/production/index.ts');
@@ -70,7 +70,7 @@ test('Sipariş Kartı: gerçek form etkileşimleri, kalıcı kayıt ve eski rout
       return data;
     }
     async function savedOrder() {
-      await click(button('Kaydet'));
+      await click(button('Sipariş Kartını Oluştur'));
       assert.equal(document.querySelector('[role="alert"]'), null, body());
       const orders = await workflowRepository.listOrders();
       assert.equal(orders.length, 1);
@@ -105,7 +105,7 @@ test('Sipariş Kartı: gerçek form etkileşimleri, kalıcı kayıt ve eski rout
       await openStock();
       for (const value of ['', '   ']) {
         await fill(field('Kumaş Adı *'), value);
-        await click(button('Kaydet'));
+        await click(button('Sipariş Kartını Oluştur'));
         assert.match(document.querySelector('[role="alert"]').textContent, /Kumaş Adı/);
         assert.equal((await workflowRepository.listOrders()).length, 0);
       }
@@ -116,7 +116,7 @@ test('Sipariş Kartı: gerçek form etkileşimleri, kalıcı kayıt ve eski rout
       const { customer } = await openStock();
       await fill(field('Sipariş Türü'), 'Ön Sipariş');
       assert.equal(field('Müşteri *').required, true);
-      await click(button('Kaydet'));
+      await click(button('Sipariş Kartını Oluştur'));
       assert.match(document.querySelector('[role="alert"]').textContent, /Müşteri/);
       assert.equal((await workflowRepository.listOrders()).length, 0);
       await fill(field('Müşteri *'), customer.id);
@@ -134,14 +134,14 @@ test('Sipariş Kartı: gerçek form etkileşimleri, kalıcı kayıt ve eski rout
     await t.test('Eksik form Kaydet yanında tüm zorunlu alanları listeler', async () => {
       await mount();
       await click(button('+ Sipariş Kartı Oluştur'));
-      await click(button('Kaydet'));
+      await click(button('Sipariş Kartını Oluştur'));
       const summary = document.querySelector('[role="alert"]');
       assert.ok(summary);
       for (const text of ['Lütfen aşağıdaki zorunlu alanları tamamlayın:', 'Müşteri', 'Ürün', 'Kumaş Adı', 'Gramaj', 'En az bir renk ve adet']) assert.ok(summary.textContent.includes(text), text);
       assert.equal(summary.querySelectorAll('li').length, 6);
       assert.equal((await workflowRepository.listOrders()).length, 0);
       await click(button('Sipariş Kalemini Kaldır'));
-      await click(button('Kaydet'));
+      await click(button('Sipariş Kartını Oluştur'));
       assert.match(document.querySelector('[role="alert"]').textContent, /En az bir sipariş kalemi/);
     });
     for (const definitions of ['none', 'inactive']) await t.test(`${definitions}: aktif ürün yoksa bilgi ve çalışan Ürün Tanımları bağlantısı`, async () => {
@@ -240,10 +240,10 @@ test('Sipariş Kartı: gerçek form etkileşimleri, kalıcı kayıt ve eski rout
       assert.ok(body().includes('Beyaz: 100 / 60 / 40'));
       let cards = await workflowRepository.list(); assert.equal(cards.length, 1); assert.equal(cards[0].productName, 'Basic Polo 2026');
       await click(button('Düzenle / Güncelle'));
-      await fill(field('Adet *'), '50'); await click(button('Güncelle'));
+      await fill(field('Adet *'), '50'); await click(button('Sipariş Kartını Güncelle'));
       assert.match(document.querySelector('[role="alert"]').textContent, /60 adet daha önce üretime aktarılmıştır/);
       await fill(field('Adet *'), '100'); await fill(field('Ürün Adı / Model Adı *'), 'Yeni Model'); await fill(field('Genel Not'), 'Düzenlenen sipariş');
-      await click(button('Güncelle')); assert.ok(body().includes('Düzenlenen sipariş'));
+      await click(button('Sipariş Kartını Güncelle')); assert.ok(body().includes('Düzenlenen sipariş'));
       await click(button('+ Üretim Kartı Oluştur')); await fill(field('Sipariş Kalemi'), order.items[0].id);
       await fill(field('Marka *'), 'TOMMY'); await fill(allocation(), '40'); await fill(field('S'), '40');
       await click(button('Üretim Kartını Oluştur')); assert.ok(body().includes('Beyaz: 100 / 100 / 0'));
@@ -264,7 +264,7 @@ test('Sipariş Kartı: gerçek form etkileşimleri, kalıcı kayıt ve eski rout
       await fill(field('Genel Not'), 'Eski ekrandaki not');
       await workflowRepository.updateOrder(order.id, order.revision, { ...order, note: 'Diğer ekranda kaydedildi' });
       await act(async () => window.dispatchEvent(new dom.window.Event('storage')));
-      await click(button('Güncelle'));
+      await click(button('Sipariş Kartını Güncelle'));
       assert.match(document.querySelector('[role="alert"]').textContent, /başka bir işlemde değişti/);
       assert.equal((await workflowRepository.listOrders())[0].note, 'Diğer ekranda kaydedildi');
     });
@@ -284,6 +284,90 @@ test('Sipariş Kartı: gerçek form etkileşimleri, kalıcı kayıt ve eski rout
       let saved;
       await act(async () => root.render(React.createElement(Form, { onDone() {}, onSubmit: async (form) => { saved = form.get('companyId'); } }, React.createElement(CompanySelect, { contacts, role: 'Fasoncu', service: 'Kesim', value: customer.id }))));
       await click(button('Kaydet')); assert.equal(saved, customer.id);
+    });
+    await t.test('Menüler kapalı başlar ve Üretim başlığı tıklanınca açılır', async () => {
+      await mount();
+      assert.ok([...document.querySelectorAll('details.nav-group')].every((node) => !node.open));
+      const summary = [...document.querySelectorAll('summary')].find((node) => node.textContent.includes('Üretim'));
+      await click(summary); assert.equal(summary.parentElement.open, true);
+      assert.ok(summary.parentElement.textContent.includes('Arşivlenen Siparişler'));
+      await click(summary); assert.equal(summary.parentElement.open, false);
+    });
+    await t.test('Kalem ve form işlemleri ayrı; termin kaydı, düzenleme, liste ve üretim görünümü', async () => {
+      await openStock();
+      assert.ok(button('Sipariş Kalemini Kaldır').closest('.order-item-card'));
+      assert.ok(button('+ Ürün Ekle').closest('.order-add-item'));
+      assert.ok(!button('+ Ürün Ekle').closest('.ws-actions'));
+      assert.equal(button('Vazgeç').parentElement, button('Sipariş Kartını Oluştur').parentElement);
+      await click(button('+ Ürün Ekle'));
+      assert.deepEqual([...document.querySelectorAll('.order-item-card h3')].map((n) => n.textContent), ['Sipariş Kalemi 1', 'Sipariş Kalemi 2']);
+      await click([...document.querySelectorAll('.order-item-actions button')][1]);
+      await fill(field('Termin Tarihi'), '2026-10-15');
+      let order = await savedOrder(); assert.equal(order.dueDate, '2026-10-15');
+      assert.ok(document.querySelector('time[datetime="2026-10-15"]'));
+      await click(button('Detay')); assert.ok(document.querySelector('time[datetime="2026-10-15"]'));
+      await click(button('Düzenle / Güncelle'));
+      await fill(field('Termin Tarihi'), '2026-10-20'); await click(button('Sipariş Kartını Güncelle'));
+      order = (await workflowRepository.listOrders())[0]; assert.equal(order.dueDate, '2026-10-20');
+      await click(button('+ Üretim Kartı Oluştur')); await fill(field('Sipariş Kalemi'), order.items[0].id);
+      await fill(field('Marka *'), 'PALO'); await fill(document.querySelector('[aria-label="Beyaz Bu Üretime Al"]'), '50'); await fill(field('S'), '1');
+      assert.equal(document.querySelectorAll('.common-size-grid').length, 1);
+      assert.equal(document.querySelectorAll('.common-size-grid input').length, 6);
+      await click(button('Üretim Kartını Oluştur'));
+      await click([...document.querySelectorAll('a')].find((n) => n.textContent === 'Üretim Kartını Aç'));
+      assert.ok(document.querySelector('time[datetime="2026-10-20"]'));
+      assert.equal(document.querySelectorAll('.common-size-table thead th').length, 6);
+      assert.equal(document.querySelectorAll('.common-size-table tbody tr').length, 1);
+      assert.ok(![...document.querySelectorAll('label > span')].some((n) => n.textContent.includes('Top Sayısı')));
+      await click(button('Kesime Föy Hazırla'));
+      assert.ok(document.querySelector('.production-paper').textContent.includes('PALO'));
+      assert.ok(document.querySelector('.production-paper').textContent.includes(order.orderNo));
+      const resultCells = [...document.querySelectorAll('.cutting-results tbody tr')][0].children;
+      assert.equal(resultCells[0].textContent, 'Beyaz');
+      for (const cell of [...resultCells].slice(1)) assert.equal(cell.textContent.trim(), '');
+      await click(button('Üretime Dön'));
+      await click(button('Kesim Sonucu Gir'));
+      assert.equal(field('Top Sayısı *').value, '');
+      assert.equal(field('Kg *').value, ''); assert.equal(field('Çıkan Adet *').value, '');
+      await fill(field('Top Sayısı *'), '2'); await fill(field('Kg *'), '15'); await fill(field('Çıkan Adet *'), '50');
+      await click(button('Kesim Sonucunu Kaydet'));
+      assert.ok(body().includes('Kesim Tamamlandı'));
+      assert.equal((await workflowRepository.list())[0].cuttingSheet.brandSections[0].rows[0].quantity, 50);
+      assert.equal(document.querySelectorAll('.common-size-table').length, 1);
+      await click(button('Listeye Dön'));
+      assert.ok(document.querySelector('time[datetime="2026-10-20"]'));
+    });
+    await t.test('Arşiv normal listeden çıkar, arşivde görünür ve geri alınır; yeni sipariş başta', async () => {
+      await openStock(); const first = await savedOrder();
+      let second;
+      await act(async () => { second = await workflowRepository.createOrder({ ...first, date: '2020-01-01' }); window.dispatchEvent(new Event('storage')); });
+      assert.ok(document.querySelector('.ws-table tbody tr').textContent.includes(second.orderNo));
+      const firstRow = [...document.querySelectorAll('.ws-table tbody tr')].find((n) => n.textContent.includes(first.orderNo));
+      await click([...firstRow.querySelectorAll('button')].find((n) => n.textContent === 'Arşive At'));
+      assert.ok(!document.querySelector('.ws-table tbody').textContent.includes(first.orderNo));
+      assert.equal((await workflowRepository.listOrders()).find((o) => o.id === first.id).archived, true);
+      await click([...document.querySelectorAll('a')].find((n) => n.textContent === 'Arşivlenen Siparişler' && n.closest('main')));
+      assert.ok(document.querySelector('.ws-table tbody').textContent.includes(first.orderNo));
+      await click(button('Arşivden Çıkar'));
+      assert.ok(!document.querySelector('.ws-table tbody').textContent.includes(first.orderNo));
+      await click([...document.querySelectorAll('a')].find((n) => n.textContent === 'Sipariş Kartları' && n.closest('main')));
+      assert.ok(document.querySelector('.ws-table tbody').textContent.includes(first.orderNo));
+    });
+    await t.test('Müşteriler ortak repository kayıtlarını gösterir; çok rollü ve pasif müşteriler yönetilir', async () => {
+      const { customer } = await mount({ path: '/firma-kisiler/musteriler' });
+      await act(async () => {
+        await contactRepository.create({ ...emptyContact, name: 'Sadece Tedarikçi', roles: ['Kumaş Tedarikçisi'] });
+        await contactRepository.create({ ...emptyContact, name: 'Çok Rollü Müşteri', roles: ['Hazır Giyim Müşterisi', 'Kumaş Tedarikçisi'], status: 'Pasif' });
+        window.dispatchEvent(new Event('storage'));
+      });
+      const table = document.querySelector('.contact-table');
+      assert.ok(table.textContent.includes(customer.name)); assert.ok(table.textContent.includes('Çok Rollü Müşteri'));
+      assert.ok(!table.textContent.includes('Sadece Tedarikçi'));
+      assert.ok(document.querySelector('#contact-role-filter').disabled);
+      await click(document.querySelector(`[aria-label="${customer.name} kaydını düzenle"]`));
+      const status = [...document.querySelectorAll('select')].find((n) => [...n.options].map((o) => o.textContent).join('|') === 'Aktif|Pasif');
+      assert.ok(status); await fill(status, 'Pasif'); await click(button('Kaydet'));
+      assert.equal((await contactRepository.get(customer.id)).status, 'Pasif');
     });
     await t.test('Eski #/uretim/yeni route sipariş listesine açıklayıcı mesajla yönlenir', async () => {
       await mount({ path: '/uretim/yeni?id=old-production' });

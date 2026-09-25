@@ -5,7 +5,7 @@
 .production-brand-editor { border: 1px solid #dce2ea; border-radius: 6px; padding: 18px; margin: 16px 0; }
 .production-color-editor { display: grid; grid-template-columns: 2fr repeat(3, minmax(80px, 1fr)) auto; gap: 12px; align-items: end; margin: 14px 0; }
 .production-size-table input { width: 70px; min-width: 60px; padding: 8px; border: 1px solid #d5dde7; border-radius: 4px; }
-.common-size-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(68px, 1fr)); gap: 8px; align-items: end; max-width: 720px; }
+.common-size-grid { display: grid; grid-auto-flow: column; grid-auto-columns: 68px; gap: 8px; align-items: end; max-width: 100%; overflow-x: auto; padding: 4px 2px 8px; }
 .common-size-grid .ws-field { min-width: 0; }
 .common-size-grid .ws-field > span { text-align: center; font-weight: 700; }
 .common-size-input { width: 100%; min-width: 0; box-sizing: border-box; padding: 7px 4px; text-align: center; }
@@ -28,7 +28,7 @@
 .handwriting-space { display: block; min-height: 30px; }
 .production-paper footer { margin-top: 32px; padding-top: 18px; border-top: 1px solid #888; line-height: 2; }
 .production-stage-paper { font-size: 11px; }
-@media (max-width: 760px) { .production-color-editor { grid-template-columns: 1fr 1fr; } .common-size-grid { grid-template-columns: repeat(4, minmax(58px, 1fr)); } .production-paper { padding: 12px; } .production-paper-info { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .production-color-editor { grid-template-columns: 1fr 1fr; } .common-size-grid { grid-auto-columns: 58px; } .production-paper { padding: 12px; } .production-paper-info { grid-template-columns: 1fr; } }
 @page { size: A4 portrait; margin: 12mm; }
 @media print {
   body:has(.production-paper) { background: white !important; }
@@ -45,3 +45,35 @@
   .production-paper h2 { break-after: avoid; }
   .production-paper footer { break-inside: avoid; }
 }
+
+.order-item-card { border: 1px solid #dce2ea; border-radius: 8px; margin: 22px 0; background: #fff; }
+.order-item-card h3 { padding: 16px 20px; background: #f3f6fa; border-bottom: 1px solid #e1e6ed; border-radius: 8px 8px 0 0; }
+.order-item-section { padding: 18px 20px; }
+.order-item-section + .order-item-section { border-top: 1px solid #edf0f4; }
+.order-item-section h4 { margin: 0 0 16px; color: #506078; font-size: 12px; }
+.order-item-section .button { justify-self: start; align-self: end; }
+.order-color-editor { display: grid; grid-template-columns: 2fr 1fr auto; gap: 12px; align-items: end; margin-bottom: 14px; }
+.order-item-actions { border-top: 1px solid #edf0f4; padding: 16px 20px; }
+.order-add-item { margin-top: 22px; }
+.ws-form:has(.order-item-card) > fieldset > .ws-actions { border-top: 1px solid #dce2ea; padding-top: 22px; margin-top: 28px; gap: 16px; }
+.order-due-date { display: inline-flex; flex-direction: column; gap: 3px; }
+.order-due-date small { font-size: 11px; color: #687587; }
+.common-size-table { width: auto; min-width: 0; table-layout: fixed; }
+.common-size-table th, .common-size-table td { min-width: 68px; padding: 8px; text-align: center; border: 1px solid #dce2ea; }
+.common-size-grid .common-size-input { padding: 7px 4px; min-height: 34px; }
+.production-paper .common-size-table { width: 100%; }
+.production-paper .common-size-table th, .production-paper .common-size-table td { min-width: 0; color: #111; border-color: #555; }
+.production-paper .table-scroll { overflow: visible; }
+.production-paper h2 { margin: 16px 0 8px; font-size: 14px; }
+.production-paper-info { gap: 8px 18px; margin: 10px 0; }
+.production-paper p { margin: 8px 0; }
+.production-paper-table { margin: 10px 0; }
+.production-request-table tbody tr { height: auto; }
+.production-request-table th, .production-request-table td { padding: 6px 8px; }
+@media(max-width:700px) {
+  .order-item-section, .order-item-actions { padding: 16px 12px; }
+  .order-color-editor { grid-template-columns: 1fr 1fr; }
+  .order-color-editor .button { grid-column: 1 / -1; justify-self: start; }
+  .ws-form:has(.order-item-card) > fieldset > .ws-actions .button { flex: 1 1 150px; }
+}
+@media print { .production-paper .common-size-display { break-inside: avoid; } }

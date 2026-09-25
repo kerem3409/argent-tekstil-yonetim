@@ -1,6 +1,19 @@
 # Üretim kaydı ve uyumluluk
 
-Yeni menü: Yeni Üretim, Kesim Föyleri, Üretim Takibi, Fason Takibi, Tamamlanan Üretimler.
+Üretim menüsü: Sipariş Kartları, Üretim Takibi, Tamamlanan Üretimler, Arşivlenen Siparişler. Ana menü grupları ilk açılışta kapalıdır.
+
+## Sipariş ve kesime hazırlık
+
+Sipariş Kartı → Sipariş Kalemi → Üretim Kartı bağlantısı korunur. Bir kalem farklı markalara ve miktarlara bölünebilir; renk/adet rezervasyon kontrolleri değişmemiştir.
+
+- `archived` ve `archivedAt` siparişin üzerinde tutulur. Arşive At / Arşivden Çıkar işlemleri revizyon kontrolüyle çalışır; üretim kayıtlarını ve bağlantılarını değiştirmez. Kalıcı silme yoktur.
+- İsteğe bağlı `dueDate` termin tarihidir. Sipariş listesi, sipariş detayı ve ilgili üretim takibinde aynı sipariş kaynağından gösterilir. Termin değişince üretimlere kopyalama gerekmez.
+- Liste `createdAt` azalan sıralıdır; eski eksik/geçersiz zaman damgasında sipariş tarihi, eşitlikte sipariş numarası kullanılır. Güncelleme ve arşivden çıkarma oluşturulma zamanını değiştirmez.
+- Yeni alanların bulunmadığı kayıtlar aktif ve terminsiz kabul edilir. Salt okuma veya sıralama depolamaya yazmaz; toplu migration/reset yoktur. Eski türetilmiş sipariş arşivlendiğinde mevcut deterministik kimliğiyle saklanır.
+- Firma / Kişiler → Müşteriler, aynı contact repository üzerinde Hazır Giyim Müşterisi rolünü filtreler. Pasif ve çok rollü müşteriler de yönetilebilir. Sipariş seçicisi aynı kayıtların aktif olanlarını kullanır.
+- `sizeDistribution` ortak pastal mantığı korunur. Oluşturma/düzenlemede yatay beden başlıkları ve hemen altında küçük girişler, detayda tek satır değerler gösterilir. Dar ekranda bu bölüm kendi içinde kayar.
+- Kesime Föy Hazırla, üretim kartındaki ayrılmış renk/adetlerden salt okunur A4 çalışma kağıdı oluşturur. Sipariş/müşteri, marka, ürün, kumaş, talimatlar ve ortak pastal bir kez gösterilir. Top Sayısı / Kg / Çıkan Adet hücreleri geçmiş sonuç bulunsa dahi boş basılır. Eski kayıtta istenen adet yoksa gerçek kesim adedi yerine belirtilmemiş yazılır.
+- Yeni kesim satırlarının top/kg/adet alanları `null` başlar. Kesim Sonucu Gir ayrı bir işlemdir; sonuç kaydında gerekli alanlar doğrulanır. Föy açmak kayıt oluşturmaz veya üretim revizyonunu değiştirmez.
 
 ## Kalıcı veri
 

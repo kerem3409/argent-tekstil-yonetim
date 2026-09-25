@@ -53,6 +53,7 @@ export interface NewProductionInput {
 export type OrderType = 'Ön Sipariş' | 'Stok İçin Üretim';
 export interface ProductionOrderCard {
   revision?: number;
+  archived?: boolean; archivedAt?: string | null; dueDate?: string | null;
   id: string; orderNo: string; orderType: OrderType; customerId?: string; date: string; note: string;
   items: ProductionOrderItem[]; productionCardIds: string[]; createdAt: string; updatedAt: string; legacy?: boolean;
 }
@@ -126,7 +127,8 @@ export function validateCutting(sections: BrandSection[], results: boolean) {
     for (const r of b.rows) {
       requireText(r.id, 'Renk kimliği'); requireText(r.color, 'Renk', 100);
       if (ids.has(r.id) || colors.has(normalized(r.color))) throw new Error('Aynı markada renk tekrarlanamaz.');
-      ids.add(r.id); colors.add(normalized(r.color)); quantity(r.rollCount!, 'Top sayısı', true);
+      ids.add(r.id); colors.add(normalized(r.color));
+      if (results || r.rollCount !== null) quantity(r.rollCount!, 'Top sayısı', true);
       if (results || r.kg !== null) quantity(r.kg!, 'Kg', false, true);
       if (results || r.quantity !== null) quantity(r.quantity!, 'Kesim adedi', true, true);
       total += r.quantity ?? 0;
@@ -195,6 +197,15 @@ export function normalizeOrderCards(data: WorkflowStore, records = normalizeProd
   }
   for (const order of result) order.productionCardIds = records.filter((p) => (p.orderCardId ?? `legacy-order:${p.legacy?.planId ?? p.id}`) === order.id).map((p) => p.id);
   return result;
+}
+
+/** Read-only ordering; missing historical timestamps fall back to the order date. */
+export function newestOrdersFirst(orders: ProductionOrderCard[]): ProductionOrderCard[] {
+  const timestamp = (order: ProductionOrderCard) => {
+    const created = Date.parse(order.createdAt ?? '');
+    return Number.isFinite(created) ? created : Date.parse(order.date ?? '') || 0;
+  };
+  return [...orders].sort((a, b) => timestamp(b) - timestamp(a) || b.orderNo.localeCompare(a.orderNo, 'tr', { numeric: true }) || b.id.localeCompare(a.id));
 }
 
 // Finans ve raporlar mevcut arayüzden okumaya devam eder. Bu görünüm depoya yazılmaz.

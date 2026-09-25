@@ -42,30 +42,28 @@ export function NewProductionForm({ contacts, saved, orderCardId, orderItem, rec
   </Section>;
 }
 
-const newRow = () => ({ id: crypto.randomUUID(), color: '', rollCount: 1, kg: null, quantity: null });
+const newRow = () => ({ id: crypto.randomUUID(), color: '', rollCount: null, kg: null, quantity: null });
 const newBrand = (): BrandSection => ({ id: crypto.randomUUID(), brandName: '', rows: [newRow()] });
 export function CuttingEditor({ production: p, done }: { production: ProductionRecord; done: () => void }) {
   const [sections, setSections] = useState<BrandSection[]>(() => structuredClone(p.cuttingSheet.brandSections.length ? p.cuttingSheet.brandSections : [{ ...newBrand(), brandName: p.brand ?? '' }]));
-  const [results, setResults] = useState(false);
   const [remove, setRemove] = useState<{ brandId: string; rowId?: string } | null>(null);
   function updateRow(brandId: string, rowId: string, changes: Partial<BrandSection['rows'][number]>) { setSections((prev) => prev.map((b) => b.id === brandId ? { ...b, rows: b.rows.map((r) => r.id === rowId ? { ...r, ...changes } : r) } : b)); }
-  return <Section title={p.cuttingSheet.brandSections.length ? 'Kesim Föyü / Kesim Sonucu' : 'Kesim Föyü Oluştur'}>
-    <p className="ws-hint">Marka, renk ve top sayısını hazırlayın. Kg ve adet boş kalabilir. Kesimci föyü getirdiğinde aynı satırlara sonuçları girin.</p>
-    <Form onDone={done} label={results ? 'Kesim Sonucunu Kaydet' : 'Kesim Föyünü Kaydet'} onSubmit={() => workflowRepository.saveCutting(p.id, p.revision, sections, results)}>
-      <Field label="Kayıt Şekli"><select value={results ? 'results' : 'sheet'} onChange={(e) => setResults(e.target.value === 'results')}><option value="sheet">Kesim föyünü hazırla</option><option value="results">Kesim tamamlandı — sonuçları kaydet</option></select></Field>
+  return <Section title="Kesim Sonucu Gir">
+    <p className="ws-hint">Kesim tamamlandıktan sonra kesimcinin bildirdiği top sayısı, kg ve çıkan adetleri girin. Kesime gönderilecek boş föy için Kesime Föy Hazırla düğmesini kullanın.</p>
+    <Form onDone={done} label="Kesim Sonucunu Kaydet" onSubmit={() => workflowRepository.saveCutting(p.id, p.revision, sections, true)}>
       {sections.map((b) => <div className="production-brand-editor" key={b.id}><Field label="Marka *"><input required readOnly={!!p.singleBrand} maxLength={200} value={b.brandName} onChange={(e) => setSections((prev) => prev.map((item) => item.id === b.id ? { ...item, brandName: e.target.value } : item))} /></Field>
         {b.rows.map((r) => <div className="production-color-editor" key={r.id}>
           <Field label="Renk *"><input required readOnly={!!p.orderItemId} maxLength={100} value={r.color} onChange={(e) => updateRow(b.id, r.id, { color: e.target.value })} /></Field>
           <Field label="Top Sayısı *"><input type="number" required min={1} max={1e9} step="1" value={r.rollCount ?? ''} onChange={(e) => updateRow(b.id, r.id, { rollCount: e.target.value === '' ? null : e.target.valueAsNumber })} /></Field>
-          <Field label={`Kg${results ? ' *' : ''}`}><input type="number" required={results} min={0} max={1e9} step="0.001" value={r.kg ?? ''} onChange={(e) => updateRow(b.id, r.id, { kg: e.target.value === '' ? null : e.target.valueAsNumber })} /></Field>
-          <Field label={`Adet${results ? ' *' : ''}`}><input type="number" required={results} min={0} max={1e9} step="1" value={r.quantity ?? ''} onChange={(e) => updateRow(b.id, r.id, { quantity: e.target.value === '' ? null : e.target.valueAsNumber })} /></Field>
+          <Field label="Kg *"><input type="number" required min={0} max={1e9} step="0.001" value={r.kg ?? ''} onChange={(e) => updateRow(b.id, r.id, { kg: e.target.value === '' ? null : e.target.valueAsNumber })} /></Field>
+          <Field label="Çıkan Adet *"><input type="number" required min={0} max={1e9} step="1" value={r.quantity ?? ''} onChange={(e) => updateRow(b.id, r.id, { quantity: e.target.value === '' ? null : e.target.valueAsNumber })} /></Field>
           <button type="button" className="button ws-secondary" disabled={!!p.orderItemId || b.rows.length === 1} onClick={() => setRemove({ brandId: b.id, rowId: r.id })}>Satırı Sil</button>
         </div>)}
         <div className="ws-tabs"><button type="button" className="button ws-secondary" disabled={!!p.orderItemId} onClick={() => setSections((prev) => prev.map((item) => item.id === b.id ? { ...item, rows: [...item.rows, newRow()] } : item))}>+ Renk Ekle</button><button type="button" disabled={!!p.orderItemId || sections.length === 1} className="button ws-secondary" onClick={() => setRemove({ brandId: b.id })}>Markayı Kaldır</button></div>
       </div>)}
       {remove && <div className="ws-error" role="alert"><p>{remove.rowId ? 'Bu renk satırındaki bilgiler kaldırılacak.' : 'Marka ve altındaki bütün renk satırları kaldırılacak.'}</p><button type="button" className="button ws-secondary" onClick={() => setRemove(null)}>Vazgeç</button> <button type="button" className="button" onClick={() => { setSections((prev) => remove.rowId ? prev.map((b) => b.id === remove.brandId ? { ...b, rows: b.rows.filter((r) => r.id !== remove.rowId) } : b) : prev.filter((b) => b.id !== remove.brandId)); setRemove(null); }}>Kaldırmayı Onayla</button></div>}
       <button type="button" className="button ws-secondary" disabled={!p.legacy} onClick={() => setSections((prev) => [...prev, newBrand()])}>+ Marka Ekle</button>
-      <p className="ws-hint">Toplam kesim adedi: {sections.reduce((sum, b) => sum + b.rows.reduce((n, r) => n + (r.quantity ?? 0), 0), 0)}{results && ' · Sonuç onayından sonra kesim satırları kilitlenir.'}</p>
+      <p className="ws-hint">Toplam kesim adedi: {sections.reduce((sum, b) => sum + b.rows.reduce((n, r) => n + (r.quantity ?? 0), 0), 0)} · Sonuç onayından sonra kesim satırları kilitlenir.</p>
     </Form>
   </Section>;
 }
