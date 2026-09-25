@@ -37,7 +37,7 @@ export function App() {
     <Route index element={<ModuleBoundary><HomePage /></ModuleBoundary>} />
     {pages.map((page) => <Route key={page.id} path={page.path} element={<ModuleBoundary key={page.id}>{page.id === 'contacts' ? <ContactsPage /> : page.id === 'product-definitions' ? <ProductDefinitionsPage /> : page.id === 'products' ? <ProductsPage /> : page.id === 'fabrics' ? <FabricsPage /> : page.id === 'materials' ? <MaterialsPage /> : page.id === 'equipment' ? <MachinesPage /> : page.id === 'production-orders' ? <OrderCardsPage /> : productionViews[page.id] ? <ProductionPage view={productionViews[page.id]} /> : page.id === 'sales' ? <SalesPage /> : ['accounts', 'payments-made', 'payments-received', 'debts', 'receivables', 'expenses'].includes(page.id) ? <FinancePage page={page.id as 'accounts' | 'payments-made' | 'payments-received' | 'debts' | 'receivables' | 'expenses'} /> : page.id.endsWith('-report') ? <ReportsPage kind={page.id} /> : <ModulePage key={page.id} page={page} />}</ModuleBoundary>} />)}
     <Route path="/uretim/plan" element={<LegacyProductionRoute path="/uretim/siparisler" />} />
-    <Route path="/uretim/yeni" element={<LegacyProductionRoute path="/uretim/siparisler" />} />
+    <Route path="/uretim/yeni" element={<Navigate to="/uretim/siparisler" state={{ fromLegacyProduction: true }} replace />} />
     <Route path="/uretim/kesim-foyleri" element={<LegacyProductionRoute path="/uretim/takip" />} />
     <Route path="/uretim/fason" element={<LegacyProductionRoute path="/uretim/takip" />} />
     <Route path="/uretim/devam-eden" element={<LegacyProductionRoute path="/uretim/takip" />} />

@@ -32,3 +32,17 @@ test('Sipariş kalemleri renk toplamını ve üretim aktarım sınırını uygul
 test('Ön siparişte müşteri zorunludur, stok üretiminde değildir', async () => {
   const repo = repository(); await assert.rejects(repo.createOrder({ orderType: 'Ön Sipariş', date: '2026-09-21', note: '' }), /müşteri/); const order = await repo.createOrder({ orderType: 'Stok İçin Üretim', date: '2026-09-21', note: '' }); assert.equal(order.customerId, undefined);
 });
+
+test('Sipariş kaydı kumaş ve gramajı kırpar, gerçekten boş değerleri yazmaz', async () => {
+  const repo = repository();
+  const item = { productDefinitionId: 'product-1', colorQuantities: [{ color: ' Beyaz ', quantity: 100 }], fabricName: ' Penye ', gsm: ' 180 ', fabricProperties: '', productDetails: '' };
+  const orderInput = { orderType: 'Stok İçin Üretim' as const, date: '2026-09-25', note: '', items: [item] };
+  for (const fabricName of ['', '   ']) await assert.rejects(repo.createOrder({ ...orderInput, items: [{ ...item, fabricName }] }), /Kumaş Adı/);
+  await assert.rejects(repo.createOrder({ ...orderInput, items: [{ ...item, gsm: '   ' }] }), /Gramaj/);
+  assert.equal((await repo.listOrders()).length, 0);
+  const order = await repo.createOrder(orderInput);
+  assert.equal(order.items[0].fabricName, 'Penye');
+  assert.equal(order.items[0].gsm, '180');
+  assert.equal(order.items[0].colorQuantities[0].color, 'Beyaz');
+  assert.equal((await repo.listOrders())[0].items[0].fabricName, 'Penye');
+});

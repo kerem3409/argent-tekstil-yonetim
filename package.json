@@ -7,7 +7,7 @@
     "test:reports": "node --experimental-strip-types --test scripts/check-reports.ts",
     "test:finance": "node --experimental-strip-types --test scripts/check-finance.ts",
     "test:sales": "node --experimental-strip-types --test scripts/check-sales.ts",
-    "test:production": "node --experimental-strip-types --test scripts/check-production.ts scripts/check-production-workflow.ts scripts/check-production-cards.ts scripts/check-production-print.mjs",
+    "test:production": "node --experimental-strip-types --test scripts/check-production.ts scripts/check-production-workflow.ts scripts/check-production-cards.ts scripts/check-production-print.mjs scripts/check-order-form.mjs",
     "test:inventory": "node --experimental-strip-types --test scripts/check-inventory.ts",
     "dev": "vite",
     "build": "tsc -b && vite build",
@@ -17,7 +17,7 @@
     "test:workflow": "node --experimental-strip-types --test scripts/check-workflow.ts",
     "test:products": "node --experimental-strip-types --test scripts/check-products.ts scripts/check-product-definitions.ts",
     "test:contacts": "node --experimental-strip-types --test scripts/check-contacts.ts",
-    "test": "node --experimental-strip-types --test scripts/check-*.ts scripts/check-production-print.mjs"
+    "test": "node --experimental-strip-types --test scripts/check-*.ts scripts/check-production-print.mjs scripts/check-order-form.mjs"
   },
   "dependencies": {
     "react": "^19.3.0",
@@ -29,6 +29,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "jsdom": "^30.1.1",
     "typescript": "^7.0.2",
     "vite": "^8.3.0"
   }
