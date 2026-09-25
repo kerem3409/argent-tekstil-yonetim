@@ -5,6 +5,10 @@
 .production-brand-editor { border: 1px solid #dce2ea; border-radius: 6px; padding: 18px; margin: 16px 0; }
 .production-color-editor { display: grid; grid-template-columns: 2fr repeat(3, minmax(80px, 1fr)) auto; gap: 12px; align-items: end; margin: 14px 0; }
 .production-size-table input { width: 70px; min-width: 60px; padding: 8px; border: 1px solid #d5dde7; border-radius: 4px; }
+.common-size-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(68px, 1fr)); gap: 8px; align-items: end; max-width: 720px; }
+.common-size-grid .ws-field { min-width: 0; }
+.common-size-grid .ws-field > span { text-align: center; font-weight: 700; }
+.common-size-input { width: 100%; min-width: 0; box-sizing: border-box; padding: 7px 4px; text-align: center; }
 .production-size-table th, .production-size-table td { padding: 10px; }
 .production-paper { background: white; color: #111; padding: 28px; max-width: 900px; margin: 20px auto; border: 1px solid #dce2ea; font-size: 13px; }
 .production-paper header { display: flex; align-items: center; justify-content: space-between; gap: 24px; border-bottom: 2px solid #182d4d; padding-bottom: 12px; }
@@ -24,7 +28,7 @@
 .handwriting-space { display: block; min-height: 30px; }
 .production-paper footer { margin-top: 32px; padding-top: 18px; border-top: 1px solid #888; line-height: 2; }
 .production-stage-paper { font-size: 11px; }
-@media (max-width: 760px) { .production-color-editor { grid-template-columns: 1fr 1fr; } .production-paper { padding: 12px; } .production-paper-info { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .production-color-editor { grid-template-columns: 1fr 1fr; } .common-size-grid { grid-template-columns: repeat(4, minmax(58px, 1fr)); } .production-paper { padding: 12px; } .production-paper-info { grid-template-columns: 1fr; } }
 @page { size: A4 portrait; margin: 12mm; }
 @media print {
   body:has(.production-paper) { background: white !important; }

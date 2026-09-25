@@ -18,10 +18,10 @@ test('Kesim ve takip A4 ekranları tüm beden serileriyle render olur; kesimde s
     for (const [series, sizes] of Object.entries(sizeSeries)) {
       const p = { ...production, sizeSeries: series, cuttingSheet: { brandSections: [{ ...production.cuttingSheet.brandSections[0], rows: [{ ...production.cuttingSheet.brandSections[0].rows[0], kg: 91, quantity: 410 }] }], completedAt: '2026-09-21' }, sizeDistributions: [{ rowId: 'r', sizes: { [sizes[0]]: 410 } }] };
       const html = renderToStaticMarkup(React.createElement(ProductionPrint, { production: p, kind: 'tracking', companyName: () => 'Atölye' }));
-      assert.ok(html.includes('Üretim Takip Föyü')); assert.ok(html.includes('Kesimden Çıkan Adet')); assert.ok(html.includes('Beden Dağılımı'));
+      assert.ok(html.includes('Üretim Takip Föyü')); assert.ok(html.includes('Kesimden Çıkan Adet')); assert.ok(html.includes('Pastal Dağılımı'));
       for (const size of sizes) assert.ok(html.includes(`<th>${size}</th>`));
       const sizeForm = renderToStaticMarkup(React.createElement(SizeEditor, { production: p, done() {} }));
-      assert.ok(sizeForm.includes('410 / 410'));
+      assert.ok(sizeForm.includes('Seri Toplamı: 410'));
     }
     const newForm = renderToStaticMarkup(React.createElement(NewProductionForm, { contacts: [], saved() {} }));
     assert.ok(newForm.includes('Ürün Seç')); assert.ok(!newForm.includes('Parti'));

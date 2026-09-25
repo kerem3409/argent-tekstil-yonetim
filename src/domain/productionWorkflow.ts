@@ -15,6 +15,7 @@ export interface CuttingRow { id: string; color: string; rollCount: number | nul
 export interface BrandSection { id: string; brandName: string; rows: CuttingRow[] }
 export interface SizeDistribution { rowId: string; sizes: Record<string, number> }
 export interface PlannedSizeDistribution { color: string; sizes: Record<string, number> }
+export type CommonSizeDistribution = Record<string, number>;
 export interface WorkflowStage {
   id: string; processType: string; companyId: string; rowId: string;
   sentQuantity: number; returnedQuantity: number; priceType: 'Adet Fiyatı' | 'Toplam Fiyat'; priceMinor: number;
@@ -37,11 +38,13 @@ export interface ProductionRecord {
   selectedColorQuantities?: { color: string; quantity: number }[];
   fabricProperties?: string;
   modelName?: string; plannedSizeDistributions?: PlannedSizeDistribution[];
+  sizeDistribution?: CommonSizeDistribution;
   sewingCompanyId?: string; cuttingCompanyId?: string; embroideryCompanyId?: string; printingCompanyId?: string; ironingPackagingCompanyId?: string;
   legacy?: { planId: string; jobId: string; planStatus: string; missingSizes: boolean };
 }
 export interface NewProductionInput {
   plannedSizeDistributions?: PlannedSizeDistribution[];
+  sizeDistribution?: CommonSizeDistribution;
   embroideryCompanyId?: string; printingCompanyId?: string; ironingPackagingCompanyId?: string;
   productDefinitionId: string; brand?: string; orderCardId?: string; orderItemId?: string; selectedColorQuantities?: { color: string; quantity: number }[]; sewingCompanyId?: string; fabricId: string; fabricName: string; gsm: string; fabricProperties?: string; sizeSeries: SizeSeries;
   cuttingMode: ProductionRecord['cuttingMode']; targetQuantity: number | null; cutterCompanyId: string;
@@ -87,12 +90,24 @@ export function validatePlannedSizes(series: SizeSeries, selected: { color: stri
     if (total !== row.quantity) throw new Error(`${row.color}: beden toplamı ${total}, bu üretime ayrılan ${row.quantity} adet ile eşleşmelidir.`);
   }
 }
+export function validateCommonSizeDistribution(series: SizeSeries, distribution: CommonSizeDistribution) {
+  const allowed = sizeSeries[series];
+  if (!distribution || Object.keys(distribution).some((size) => !(allowed as readonly string[]).includes(size))) throw new Error('Seçilen beden serisi veya beden geçersiz.');
+  let total = 0;
+  for (const size of allowed) { const value = distribution[size] ?? 0; quantity(value, `${size} adedi`, true, true); total += value; }
+  if (total <= 0) throw new Error('En az bir beden adedi 0’dan büyük olmalıdır.');
+  return total;
+}
+export function commonSizeDistribution(p: ProductionRecord): CommonSizeDistribution | undefined {
+  return p.sizeDistribution ?? p.sizeDistributions.find((row) => Object.keys(row.sizes).length > 0)?.sizes;
+}
 export function validateNewProduction(input: NewProductionInput) {
   requireText(input.productDefinitionId, 'Ürün'); checkDate(input.date);
   if (!Object.hasOwn(sizeSeries, input.sizeSeries)) throw new Error('Beden serisi seçin.');
   if (!['Kumaştan Çıktığı Kadar', 'Hedef Adet'].includes(input.cuttingMode)) throw new Error('Kesim şekli seçin.');
   if (input.cuttingMode === 'Hedef Adet') quantity(input.targetQuantity!, 'Hedef adet', true);
   if (input.brand !== undefined) requireText(input.brand, 'Marka', 200);
+  if (input.sizeDistribution) validateCommonSizeDistribution(input.sizeSeries, input.sizeDistribution);
   for (const v of [input.fabricName, input.gsm, input.fabricProperties ?? '', input.productInstructions, input.note]) if (typeof v !== 'string' || v.length > 2000) throw new Error('Metin alanları en fazla 2000 karakter olabilir.');
   if (input.orderItemId && input.selectedColorQuantities) {
     const colors = new Set<string>();

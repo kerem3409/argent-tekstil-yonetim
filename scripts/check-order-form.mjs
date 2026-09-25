@@ -232,13 +232,11 @@ test('Sipariş Kartı: gerçek form etkileşimleri, kalıcı kayıt ve eski rout
       await fill(allocation(), '60');
       for (const [series, labels] of [['Yetişkin', ['S', 'M', 'L', 'XL', '2XL', '3XL']], ['Çocuk', ['2 Yaş', '4 Yaş', '6 Yaş', '8 Yaş', '10 Yaş', '12 Yaş', '14 Yaş']], ['Battal Boy', ['4XL', '5XL', '6XL']]]) {
         await fill(field('Beden Serisi'), series);
-        for (const size of labels) assert.ok(field(`Beyaz ${size}`));
-        assert.ok(![...document.querySelectorAll('label > span')].some((n) => n.textContent === 'Beyaz XS'));
+        for (const size of labels) assert.ok(field(size));
+        assert.ok(![...document.querySelectorAll('label > span')].some((n) => n.textContent === 'Beyaz S'));
       }
-      await fill(field('Beden Serisi'), 'Yetişkin'); await fill(field('Beyaz M'), '59');
+      await fill(field('Beden Serisi'), 'Yetişkin'); await fill(field('M'), '59');
       await click(button('Üretim Kartını Oluştur'));
-      assert.match(document.querySelector('[role="alert"]').textContent, /eşleşmelidir/);
-      await fill(field('Beyaz M'), '60'); await click(button('Üretim Kartını Oluştur'));
       assert.ok(body().includes('Beyaz: 100 / 60 / 40'));
       let cards = await workflowRepository.list(); assert.equal(cards.length, 1); assert.equal(cards[0].productName, 'Basic Polo 2026');
       await click(button('Düzenle / Güncelle'));
@@ -247,17 +245,17 @@ test('Sipariş Kartı: gerçek form etkileşimleri, kalıcı kayıt ve eski rout
       await fill(field('Adet *'), '100'); await fill(field('Ürün Adı / Model Adı *'), 'Yeni Model'); await fill(field('Genel Not'), 'Düzenlenen sipariş');
       await click(button('Güncelle')); assert.ok(body().includes('Düzenlenen sipariş'));
       await click(button('+ Üretim Kartı Oluştur')); await fill(field('Sipariş Kalemi'), order.items[0].id);
-      await fill(field('Marka *'), 'TOMMY'); await fill(allocation(), '40'); await fill(field('Beyaz S'), '40');
+      await fill(field('Marka *'), 'TOMMY'); await fill(allocation(), '40'); await fill(field('S'), '40');
       await click(button('Üretim Kartını Oluştur')); assert.ok(body().includes('Beyaz: 100 / 100 / 0'));
       cards = await workflowRepository.list(); assert.equal(cards.length, 2); assert.equal(cards[1].productName, 'Yeni Model');
       const link = [...document.querySelectorAll('a')].find((n) => n.textContent === 'Üretim Kartını Aç'); await click(link);
       await click(button('Düzenle / Güncelle'));
       assert.equal(field('Marka').readOnly, true);
-      await fill(field('Beyaz M'), '50'); await fill(field('Beyaz L'), '10');
+      await fill(field('M'), '50'); await fill(field('L'), '10');
       await fill(field('Not'), 'Üretim güncellendi'); await fill(field('Nakışçı'), cutters['Nakış'].id);
       await click(button('Üretim Kartını Güncelle'));
       cards = await workflowRepository.list(); const edited = cards.find((p) => p.brand === 'PALO'); assert.equal(edited.note, 'Üretim güncellendi'); assert.equal(edited.embroideryCompanyId, cutters['Nakış'].id);
-      assert.deepEqual(edited.plannedSizeDistributions, [{ color: 'Beyaz', sizes: { M: 50, L: 10 } }]);
+      assert.deepEqual(edited.sizeDistribution, { M: 50, L: 10 });
       assert.equal(edited.orderItemId, order.items[0].id);
     });
     await t.test('Açık sipariş formu başka ekranda güncellenen kaydın üzerine yazmaz', async () => {

@@ -6,12 +6,12 @@ import type { ProductRepository } from '../products/repository';
 import type { Fabric } from '../../domain/inventory';
 import { checkDate, minor, quantity, requireText, uid } from '../../domain/common.ts';
 import { validateProductionStore } from './repository.ts';
-import { completionTargets, cuttingTotal, cutRows, normalizeOrderCards, normalizeProductions, processes, productionStatuses, sizeSeries, validateCutting, validateNewProduction, validateSizes, validatePlannedSizes, orderAllocation, workflowStageAmount } from '../../domain/productionWorkflow.ts';
+import { completionTargets, cuttingTotal, cutRows, normalizeOrderCards, normalizeProductions, processes, productionStatuses, sizeSeries, validateCutting, validateNewProduction, validateSizes, validateCommonSizeDistribution, validatePlannedSizes, orderAllocation, workflowStageAmount } from '../../domain/productionWorkflow.ts';
 import type { BrandSection, CompletionLine, NewProductionInput, OrderType, Process, ProductionOrderCard, ProductionOrderItem, ProductionRecord, SizeDistribution, WorkflowStage, WorkflowStore } from '../../domain/productionWorkflow';
 
 export type OrderItemInput = Omit<ProductionOrderItem, 'id' | 'productName' | 'totalQuantity'> & { id?: string };
 export interface OrderInput { orderType: OrderType; customerId?: string; date: string; note: string; items?: OrderItemInput[] }
-export type ProductionUpdate = Pick<ProductionRecord, 'brand' | 'sizeSeries' | 'cutterCompanyId' | 'sewingCompanyId' | 'embroideryCompanyId' | 'printingCompanyId' | 'ironingPackagingCompanyId' | 'fabricProperties' | 'productInstructions' | 'note' | 'plannedSizeDistributions'>;
+export type ProductionUpdate = Pick<ProductionRecord, 'brand' | 'sizeSeries' | 'cutterCompanyId' | 'sewingCompanyId' | 'embroideryCompanyId' | 'printingCompanyId' | 'ironingPackagingCompanyId' | 'fabricProperties' | 'productInstructions' | 'note' | 'plannedSizeDistributions' | 'sizeDistribution'>;
 export const PRODUCTION_STORAGE_KEY = 'argent-tekstil.production.v1';
 export interface WorkflowStageInput { processType: Process; companyId: string; rowId: string; sentQuantity: number; returnedQuantity: number; priceType: WorkflowStage['priceType']; price: number; sentDate: string; returnDate: string; status: WorkflowStage['status']; note: string }
 interface Dependencies {
@@ -139,10 +139,11 @@ export function createWorkflowRepository(storage: () => StoragePort, deps: Depen
         }
         await validateAssignments(input, p);
         for (const value of [input.fabricProperties ?? '', input.productInstructions, input.note]) if (typeof value !== 'string' || value.length > 2000) throw new Error('Metin alanları en fazla 2000 karakter olabilir.');
-        if (!p.cuttingSheet.completedAt && p.orderItemId && (p.plannedSizeDistributions?.length || input.plannedSizeDistributions?.length || input.sizeSeries !== p.sizeSeries)) validatePlannedSizes(input.sizeSeries, p.selectedColorQuantities ?? [], input.plannedSizeDistributions ?? []);
+        if (!p.cuttingSheet.completedAt && input.sizeDistribution) validateCommonSizeDistribution(input.sizeSeries, input.sizeDistribution);
         // Explicit allowlist: order links, reserved colors/amounts and posted stage entries never change here.
         p.sizeSeries = input.sizeSeries;
         if (!p.cuttingSheet.completedAt && input.plannedSizeDistributions) p.plannedSizeDistributions = structuredClone(input.plannedSizeDistributions);
+        if (!p.cuttingSheet.completedAt && input.sizeDistribution) p.sizeDistribution = structuredClone(input.sizeDistribution);
         for (const [field] of assignments) p[field] = input[field] ?? '';
         p.cuttingCompanyId = p.cutterCompanyId;
         p.fabricProperties = input.fabricProperties?.trim() ?? '';
@@ -172,12 +173,13 @@ export function createWorkflowRepository(storage: () => StoragePort, deps: Depen
           if (!selected.length) throw new Error('Üretime aktarılacak renkleri seçin.');
           for (const row of selected) { const key = row.color.trim().toLocaleLowerCase('tr-TR'); const limit = ordered.get(key); if (limit === undefined) throw new Error('Sipariş kaleminde olmayan renk seçilemez.'); if ((used.get(key) ?? 0) + row.quantity > limit) throw new Error(`${row.color} renk için üretime alınabilecek en fazla miktar ${limit - (used.get(key) ?? 0)} adettir.`); }
         }
-        if (item) validatePlannedSizes(input.sizeSeries, selected, input.plannedSizeDistributions ?? []);
+        if (input.plannedSizeDistributions) validatePlannedSizes(input.sizeSeries, selected, input.plannedSizeDistributions);
+        if (input.sizeDistribution) validateCommonSizeDistribution(input.sizeSeries, input.sizeDistribution);
         const fabricName = item?.fabricName ?? input.fabricName.trim(); const gsm = item?.gsm ?? input.gsm.trim(); const fabricProperties = item?.fabricProperties ?? input.fabricProperties ?? '';
         const p: ProductionRecord = { ...input, id: uid(), productionNo: `UR-${String(index).padStart(5, '0')}`, productId: uid(), productName: item?.modelName ?? item?.productName ?? definition.name, ...(item ? { modelName: item.modelName ?? item.productName } : {}), brand: input.brand?.trim() || 'Marka belirtilmemiş', ...(orderId ? { orderCardId: orderId } : {}), singleBrand: !!input.brand,
           ...(input.orderItemId ? { orderItemId: input.orderItemId } : {}), ...(selected.length ? { selectedColorQuantities: structuredClone(selected) } : {}), fabricName: fabric?.name ?? fabricName, gsm, fabricProperties, productInstructions: item?.productDetails ?? input.productInstructions,
           targetQuantity: input.cuttingMode === 'Hedef Adet' ? input.targetQuantity : null,
-          status: 'Kesim Bekliyor', cuttingSheet: { brandSections: input.brand && selected.length ? [{ id: uid(), brandName: input.brand.trim(), rows: selected.map((row) => ({ id: uid(), color: row.color, rollCount: 1, kg: null, quantity: null })) }] : [], completedAt: '' }, sizeDistributions: [], productionStages: [], completion: null, stockTransfer: null, createdAt: now, updatedAt: now, revision: 0 };
+          status: 'Kesim Bekliyor', cuttingSheet: { brandSections: input.brand && selected.length ? [{ id: uid(), brandName: input.brand.trim(), rows: selected.map((row) => ({ id: uid(), color: row.color, rollCount: 1, kg: null, quantity: null })) }] : [], completedAt: '' }, sizeDistributions: [], ...(input.sizeDistribution ? { sizeDistribution: structuredClone(input.sizeDistribution) } : {}), productionStages: [], completion: null, stockTransfer: null, createdAt: now, updatedAt: now, revision: 0 };
         (data.productions ??= []).push(p); if (order) { order.productionCardIds.push(p.id); order.updatedAt = now; order.revision = (order.revision ?? 0) + 1; } return p;
       });
     },
@@ -200,6 +202,9 @@ export function createWorkflowRepository(storage: () => StoragePort, deps: Depen
     },
     async saveSizes(id: string, revision: number, distributions: SizeDistribution[]) {
       return mutate(id, revision, (p) => { afterCut(p); validateSizes(p, distributions); p.sizeDistributions = structuredClone(distributions); });
+    },
+    async saveCommonSizeDistribution(id: string, revision: number, series: ProductionRecord['sizeSeries'], distribution: Record<string, number>) {
+      return mutate(id, revision, (p) => { afterCut(p); if (series !== p.sizeSeries) throw new Error('Kesim sonrası beden serisi değiştirilemez.'); validateCommonSizeDistribution(series, distribution); p.sizeDistribution = structuredClone(distribution); });
     },
     async addStage(id: string, revision: number, input: WorkflowStageInput) {
       await company(input.companyId);
