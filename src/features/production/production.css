@@ -98,6 +98,21 @@
 .production-reference-heading { grid-column: 1 / -1; margin: 20px 0 4px; font-size: 13px; color: #506078; }
 
 .allocation-input { width: 7rem; max-width: 100%; }
+.plan-detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) 270px; gap: 22px; align-items: start; }
+.plan-status-panel { position: sticky; top: 18px; }
+.plan-process { list-style: none; padding: 0; }
+.plan-process li { border-left: 3px solid #dce2ea; padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; }
+.plan-process li.done { border-color: #348464; color: #25684d; }
+.plan-process li.current { border-color: #315d9a; background: #edf2f8; }
+.plan-process span { font-size: 12px; }
+.plan-stage { border-top: 1px solid #dce2ea; padding: 18px 0; }
+.plan-stage h3, .plan-detail-grid h3 { margin: 16px 0; }
+.plan-note-row { display: flex; gap: 10px; align-items: end; margin: 10px 0; }
+.plan-note-row .ws-field { flex: 1; }
+.plan-material { margin: 12px 0; }
+.plan-technical-print .ws-table { width: 100%; min-width: 0; }
+.plan-technical-print .ws-table td, .plan-technical-print .ws-table th { white-space: normal; border: 1px solid #777; }
+@media(max-width:900px) { .plan-detail-grid { grid-template-columns: minmax(0, 1fr); } .plan-status-panel { position: static; } }
 .cutting-blank { display: block; min-height: 2rem; border-bottom: 1px solid #aaa; min-width: 4rem; }
 .cutting-order-print li { white-space: pre-wrap; }
 @media print { .cutting-order-print { font-size: 10pt; } .cutting-order-print h2 { font-size: 12pt; margin-top: 12px; } .cutting-order-print tr { break-inside: avoid; } }

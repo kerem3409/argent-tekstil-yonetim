@@ -1,4 +1,5 @@
 import { cuttingOrderMethods, validateCuttingOrders } from './cuttingOrders.ts';
+import { validatePlanRecords } from '../../domain/productionPlan.ts';
 import { cuttingAllocation, cutProductionAllocation, itemInstructions } from '../../domain/cuttingWorkflow.ts';
 import { createDeletionPin } from './deletionPin.ts';
 import { createStore } from '../shared/store.ts';
@@ -21,9 +22,11 @@ interface Dependencies {
   contacts: Pick<ContactRepository, 'get'>; definitions: ProductDefinitionRepository; products: ProductRepository;
   fabrics: { load(): Promise<{ records: Fabric[] }> };
 }
-function validateWorkflowStore(value: unknown) {
+export function validateWorkflowStore(value: unknown) {
   validateProductionStore(value);
   const data = value as WorkflowStore;
+  validatePlanRecords(data.unifiedPlans);
+  if (data.nextUnifiedPlan !== undefined && (!Number.isSafeInteger(data.nextUnifiedPlan) || data.nextUnifiedPlan < 1)) throw new Error('Plan sayacı geçersiz.');
   validateCuttingOrders(data);
   if (data.nextProduction !== undefined && (!Number.isSafeInteger(data.nextProduction) || data.nextProduction < 1)) throw new Error('Üretim sayacı geçersiz.');
   if (data.nextOrder !== undefined && (!Number.isSafeInteger(data.nextOrder) || data.nextOrder < 1)) throw new Error('Sipariş sayacı geçersiz.');

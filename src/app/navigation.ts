@@ -18,12 +18,9 @@ export const navigation: NavigationGroup[] = [
     { id: 'equipment', title: 'Makine & Teçhizat', path: '/stok/makine-techizat', description: 'Atölyenin makine ve teçhizat kayıtlarını görüntüleyin.', columns: ['Makine Kodu', 'Makine Adı', 'Konum', 'Durum'] },
   ] },
   { title: 'Üretim', symbol: 'production', pages: [
-    { id: 'production-orders', title: 'Sipariş Kartları', path: '/uretim/siparisler', description: 'Siparişleri ve onlara bağlı üretim kartlarını yönetin.', columns: ['Sipariş No', 'Tür', 'Tarih', 'Üretim Kartı'] },
-    { id: 'cutting-tracking', title: 'Kesim Takibi', path: '/uretim/kesim-takibi', description: 'Kesim emirlerini, sonuçlarını ve üretime ayrılan adetleri takip edin.', columns: ['Kesim Emri No', 'Sipariş', 'Ürün', 'Durum'] },
-    { id: 'production-tracking', title: 'Üretim Takibi', path: '/uretim/takip', description: 'Kesimden stoğa üretimi takip edin.', columns: ['Üretim No', 'Ürün', 'Durum'] },
-    { id: 'production-completed', title: 'Tamamlanan Üretimler', path: '/uretim/tamamlanan', description: 'Tamamlanan üretimlerin geçmişini görüntüleyin.', columns: ['Üretim No', 'Ürün', 'Sağlam', 'Fire'] },
-    { id: 'production-archives', title: 'Arşivler', path: '/uretim/arsivler', description: 'Arşivlenen siparişleri görüntüleyin veya yeniden aktif listeye alın.', columns: ['Sipariş No', 'Tür', 'Termin Tarihi'] },
-    { id: 'production-trash', title: 'Çöp Kutusu', path: '/uretim/cop-kutusu', description: 'Silinen sipariş, kesim emri ve üretim kartlarını geri yükleyin.', columns: ['Kayıt No', 'Silinme Zamanı', 'İşlem'] },
+    { id: 'production-plans', title: 'Üretim Planları', path: '/uretim/planlar', description: 'Ürün kalemlerini planlamadan tamamlanana kadar aynı planda takip edin.', columns: ['Plan No', 'Plan Adı', 'Müşteri', 'Termin', 'Durum'] },
+    { id: 'production-archives', title: 'Arşiv', path: '/uretim/arsivler', description: 'Arşivlenen üretim planlarını görüntüleyin ve geri alın.', columns: ['Plan No', 'Plan Adı', 'Termin'] },
+    { id: 'production-trash', title: 'Çöp Kutusu', path: '/uretim/cop-kutusu', description: 'Üretim planlarını bağlı aşamalarıyla birlikte geri yükleyin.', columns: ['Plan No', 'Plan Adı', 'İşlem'] },
   ] },
   { title: 'Satışlar', symbol: 'sales', pages: [
     { id: 'sales', title: 'Satış Listesi', path: '/satislar', description: 'Satış kayıtlarını bu alanda görüntüleyin.', columns: ['Satış No', 'Müşteri', 'Tarih', 'Durum'] },

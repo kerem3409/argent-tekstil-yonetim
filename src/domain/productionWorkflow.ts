@@ -73,7 +73,7 @@ export interface ProductionOrderItem {
   fabricName: string; gsm: string; fabricProperties: string; productDetails: string;
 }
 export type ProductionLifecycle = Pick<ProductionRecord, 'archived' | 'archivedAt' | 'archivedByOrderId' | 'deleted' | 'deletedAt' | 'deletedByOrderId' | 'revision' | 'updatedAt'>;
-export interface WorkflowStore extends ProductionStore { cuttingOrders?: import('./cuttingWorkflow').CuttingOrder[]; nextCuttingOrder?: number; productions?: ProductionRecord[]; nextProduction?: number; orderCards?: ProductionOrderCard[]; nextOrder?: number; productionLifecycle?: Record<string, ProductionLifecycle> }
+export interface WorkflowStore extends ProductionStore { unifiedPlans?: import('./productionPlan').ProductionPlan[]; nextUnifiedPlan?: number; cuttingOrders?: import('./cuttingWorkflow').CuttingOrder[]; nextCuttingOrder?: number; productions?: ProductionRecord[]; nextProduction?: number; orderCards?: ProductionOrderCard[]; nextOrder?: number; productionLifecycle?: Record<string, ProductionLifecycle> }
 export const cutRows = (p: ProductionRecord) => p.cuttingSheet.brandSections.flatMap((b) => b.rows.map((r) => ({ ...r, brandName: b.brandName })));
 export const cuttingTotal = (p: ProductionRecord) => cutRows(p).reduce((sum, r) => sum + (r.quantity ?? 0), 0);
 export const stageRemainingQuantity = (s: WorkflowStage) => s.sentQuantity - s.returnedQuantity;

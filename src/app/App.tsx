@@ -1,4 +1,4 @@
-import { CuttingOrdersPage } from '../features/production/CuttingOrdersPage';
+import { ProductionPlansPage } from '../features/production/ProductionPlansPage';
 import { useEffect } from 'react';
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { Layout } from '../components/Layout';
@@ -10,17 +10,11 @@ import { ProductsPage } from '../features/products/ProductsPage';
 import { FabricsPage } from '../features/inventory/FabricsPage';
 import { MaterialsPage } from '../features/inventory/MaterialsPage';
 import { MachinesPage } from '../features/inventory/MachinesPage';
-import { ProductionPage } from '../features/production/ProductionPage';
-import type { ProductionView } from '../features/production/ProductionPage';
-import { TrashPage } from '../features/production/TrashPage';
-import { OrderCardsPage } from '../features/production/OrderCardsPage';
 import { SalesPage } from '../features/sales/SalesPage';
 import { FinancePage } from '../features/finance/FinancePage';
 import { ReportsPage } from '../features/reports/ReportsPage';
 import { ModuleBoundary } from '../features/shared/WorkshopUI';
 import { pages } from './navigation';
-
-const productionViews: Record<string, ProductionView> = { 'production-tracking': 'tracking', 'production-completed': 'completed' };
 
 function LegacyProductionRoute({ path }: { path: string }) {
   const { search } = useLocation();
@@ -37,12 +31,8 @@ export function App() {
   }, [pathname]);
   return <Routes><Route element={<Layout />}>
     <Route index element={<ModuleBoundary><HomePage /></ModuleBoundary>} />
-    {pages.map((page) => <Route key={page.id} path={page.path} element={<ModuleBoundary key={page.id}>{page.id === 'customers' ? <ContactsPage customersOnly /> : page.id === 'contacts' ? <ContactsPage /> : page.id === 'product-definitions' ? <ProductDefinitionsPage /> : page.id === 'products' ? <ProductsPage /> : page.id === 'fabrics' ? <FabricsPage /> : page.id === 'materials' ? <MaterialsPage /> : page.id === 'equipment' ? <MachinesPage /> : page.id === 'cutting-tracking' ? <CuttingOrdersPage /> : page.id === 'production-trash' ? <TrashPage /> : page.id === 'production-archives' ? <OrderCardsPage archived /> : page.id === 'production-orders' ? <OrderCardsPage /> : productionViews[page.id] ? <ProductionPage view={productionViews[page.id]} /> : page.id === 'sales' ? <SalesPage /> : ['accounts', 'payments-made', 'payments-received', 'debts', 'receivables', 'expenses'].includes(page.id) ? <FinancePage page={page.id as 'accounts' | 'payments-made' | 'payments-received' | 'debts' | 'receivables' | 'expenses'} /> : page.id.endsWith('-report') ? <ReportsPage kind={page.id} /> : <ModulePage key={page.id} page={page} />}</ModuleBoundary>} />)}
-    <Route path="/uretim/plan" element={<LegacyProductionRoute path="/uretim/siparisler" />} />
-    <Route path="/uretim/yeni" element={<Navigate to="/uretim/siparisler" state={{ fromLegacyProduction: true }} replace />} />
-    <Route path="/uretim/kesim-foyleri" element={<LegacyProductionRoute path="/uretim/takip" />} />
-    <Route path="/uretim/fason" element={<LegacyProductionRoute path="/uretim/takip" />} />
-    <Route path="/uretim/devam-eden" element={<LegacyProductionRoute path="/uretim/takip" />} />
+    {pages.map((page) => <Route key={page.id} path={page.path} element={<ModuleBoundary key={page.id}>{page.id === 'customers' ? <ContactsPage customersOnly /> : page.id === 'contacts' ? <ContactsPage /> : page.id === 'product-definitions' ? <ProductDefinitionsPage /> : page.id === 'products' ? <ProductsPage /> : page.id === 'fabrics' ? <FabricsPage /> : page.id === 'materials' ? <MaterialsPage /> : page.id === 'equipment' ? <MachinesPage /> : page.id === 'production-trash' ? <ProductionPlansPage mode="trash" /> : page.id === 'production-archives' ? <ProductionPlansPage mode="archive" /> : page.id === 'production-plans' ? <ProductionPlansPage /> : page.id === 'sales' ? <SalesPage /> : ['accounts', 'payments-made', 'payments-received', 'debts', 'receivables', 'expenses'].includes(page.id) ? <FinancePage page={page.id as 'accounts' | 'payments-made' | 'payments-received' | 'debts' | 'receivables' | 'expenses'} /> : page.id.endsWith('-report') ? <ReportsPage kind={page.id} /> : <ModulePage key={page.id} page={page} />}</ModuleBoundary>} />)}
+    {["/uretim/plan", "/uretim/yeni", "/uretim/siparisler", "/uretim/kesim-takibi", "/uretim/takip", "/uretim/tamamlanan", "/uretim/kesim-foyleri", "/uretim/fason", "/uretim/devam-eden"].map((path) => <Route key={path} path={path} element={<LegacyProductionRoute path="/uretim/planlar" />} />)}
     <Route path="*" element={<div className="not-found"><span className="eyebrow">404</span><h1>Sayfa bulunamadı</h1><p>Bu adres mevcut bir sayfaya ait değil.</p><Link className="button" to="/">Ana Sayfaya dön</Link></div>} />
   </Route></Routes>;
 }
