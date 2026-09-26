@@ -1,3 +1,4 @@
+import { legacyOrderFixture } from './legacy-workflow-fixture.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createWorkflowRepository, PRODUCTION_STORAGE_KEY } from '../src/data/production/workflowRepository.ts';
@@ -21,7 +22,7 @@ async function setup() {
   const definition = await definitions.save({ name: 'Polo Yaka Tişört', note: '', status: 'Aktif' });
   const products = createProductRepository(() => storage, contacts, (work) => lock(PRODUCTS_STORAGE_KEY, work), definitions);
   const deps = { contacts, definitions, products, fabrics: { async load() { return { records: [] }; } } };
-  const repository = createWorkflowRepository(() => storage, deps, lock);
+  const repository = legacyOrderFixture(createWorkflowRepository(() => storage, deps, lock), storage);
   const input: NewProductionInput = { productDefinitionId: definition.id, fabricId: '', fabricName: 'Penye', gsm: '180', sizeSeries: 'Yetişkin', cuttingMode: 'Kumaştan Çıktığı Kadar', targetQuantity: null, cutterCompanyId: person.id, date: '2026-09-21', productInstructions: 'Dikiş payı 1 cm', note: 'Test' };
   const get = async (id: string) => (await repository.list()).find((p) => p.id === id)!;
   return { values, storage, repository, products, contacts, definitions, definition, deps, input, get, person, fail: (key: string) => { failKey = key; } };

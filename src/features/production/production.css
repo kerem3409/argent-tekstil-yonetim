@@ -96,3 +96,8 @@
   .record-dialog { padding: 18px; }
 }
 .production-reference-heading { grid-column: 1 / -1; margin: 20px 0 4px; font-size: 13px; color: #506078; }
+
+.allocation-input { width: 7rem; max-width: 100%; }
+.cutting-blank { display: block; min-height: 2rem; border-bottom: 1px solid #aaa; min-width: 4rem; }
+.cutting-order-print li { white-space: pre-wrap; }
+@media print { .cutting-order-print { font-size: 10pt; } .cutting-order-print h2 { font-size: 12pt; margin-top: 12px; } .cutting-order-print tr { break-inside: avoid; } }

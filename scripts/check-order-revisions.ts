@@ -1,3 +1,4 @@
+import { legacyOrderFixture } from './legacy-workflow-fixture.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createWorkflowRepository, PRODUCTION_STORAGE_KEY } from '../src/data/production/workflowRepository.ts';
@@ -19,7 +20,7 @@ async function setup() {
   const definitions = createProductDefinitionRepository(() => storage, lock);
   const definition = await definitions.save({ name: 'Polo Yaka', note: '', status: 'Aktif' });
   const deps = { contacts, definitions, products: { async load() { return { productionReceipts: [] }; } }, fabrics: { async load() { return { records: [] }; } } };
-  const repo = createWorkflowRepository(() => storage, deps, lock);
+  const repo = legacyOrderFixture(createWorkflowRepository(() => storage, deps, lock), storage);
   const item = { productDefinitionId: definition.id, modelName: 'Basic Polo 2026', colorQuantities: [{ color: 'Siyah', quantity: 1000 }, { color: 'Beyaz', quantity: 500 }], fabricName: 'Penye', gsm: '180', fabricProperties: 'Likralı', productDetails: 'Yaka detayı' };
   const order = await repo.createOrder({ orderType: 'Ön Sipariş', customerId: customer.id, date: '2026-09-25', note: 'Sipariş', items: [item] });
   const input = (quantity = 500, brand = 'PALO') => ({ orderCardId: order.id, orderItemId: order.items[0].id, productDefinitionId: definition.id, brand, selectedColorQuantities: [{ color: 'Siyah', quantity }], plannedSizeDistributions: [{ color: 'Siyah', sizes: { S: quantity } }], sizeSeries: 'Yetişkin' as const, cutterCompanyId: cutter.id, sewingCompanyId: tailor.id, fabricId: '', fabricName: '', gsm: '', cuttingMode: 'Kumaştan Çıktığı Kadar' as const, targetQuantity: null, date: '2026-09-25', productInstructions: '', note: '' });

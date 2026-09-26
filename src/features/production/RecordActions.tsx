@@ -25,9 +25,9 @@ function RecordDialog({ kind, record, operation, close, done }: { kind: 'order' 
     return () => { active = false; trigger?.focus(); };
   }, [operation]);
   const message = operation === 'archive'
-    ? record.archived ? 'Bu sipariş kartı ve ona bağlı üretim kartları tekrar aktif hale getirilecek. Devam etmek istiyor musunuz?' : 'Bu sipariş kartı ve ona bağlı tüm üretim kartları arşive alınacak. Devam etmek istiyor musunuz?'
-    : operation === 'delete' ? kind === 'order' ? 'Bu sipariş kartı ve ona bağlı tüm üretim kartları Çöp Kutusuna taşınacak. Devam etmek için şifrenizi girin.' : 'Bu üretim kartı Çöp Kutusuna taşınacak. Devam etmek için şifrenizi girin.'
-    : kind === 'order' ? 'Sipariş ve onunla birlikte silinen üretimler geri yüklenecek. Daha önce ayrı silinen üretimler Çöp Kutusunda kalacak.' : 'Üretim kartı geri yüklenecek. Sipariş ilişkisi ve kullanılabilir tahsis miktarı kontrol edilecek.';
+    ? record.archived ? 'Bu sipariş kartı, bağlı kesim emirleri ve üretim kartları tekrar aktif hale getirilecek. Devam etmek istiyor musunuz?' : 'Bu sipariş kartı, bağlı kesim emirleri ve üretim kartları arşive alınacak. Devam etmek istiyor musunuz?'
+    : operation === 'delete' ? kind === 'order' ? 'Bu sipariş kartı, bağlı kesim emirleri ve üretim kartları Çöp Kutusuna taşınacak. Devam etmek için şifrenizi girin.' : 'Bu üretim kartı Çöp Kutusuna taşınacak. Devam etmek için şifrenizi girin.'
+    : kind === 'order' ? 'Sipariş ve onunla birlikte silinen kesim emirleri ve üretimler geri yüklenecek. Daha önce ayrı silinen üretimler Çöp Kutusunda kalacak.' : 'Üretim kartı geri yüklenecek. Sipariş ilişkisi ve kullanılabilir tahsis miktarı kontrol edilecek.';
   const label = operation === 'archive' ? record.archived ? 'Arşivden Çıkar' : 'Arşive At' : operation === 'restore' ? 'Çöp Kutusundan Geri Yükle' : configured === false ? 'Silme Şifresini Belirle' : 'Çöp Kutusuna Taşı';
   async function submit() {
     if (running.current) return; running.current = true; setBusy(true); setError('');

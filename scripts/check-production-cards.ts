@@ -1,3 +1,4 @@
+import { legacyOrderFixture } from './legacy-workflow-fixture.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createWorkflowRepository } from '../src/data/production/workflowRepository.ts';
@@ -11,7 +12,7 @@ function repository() {
     products: { async load() { return { productionReceipts: [] }; } },
     fabrics: { async load() { return { records: [] }; } },
   };
-  return createWorkflowRepository(() => storage, deps);
+  return legacyOrderFixture(createWorkflowRepository(() => storage, deps), storage);
 }
 
 const input = (orderCardId: string, brand: string) => ({ productDefinitionId: 'product-1', orderCardId, brand, fabricId: '', fabricName: 'Penye', gsm: '180', sizeSeries: 'Yetişkin' as const, cuttingMode: 'Kumaştan Çıktığı Kadar' as const, targetQuantity: null, cutterCompanyId: 'cutting', date: '2026-09-21', productInstructions: '', note: '' });
@@ -38,7 +39,7 @@ test('Sipariş kaydı kumaş ve gramajı kırpar, gerçekten boş değerleri yaz
   const item = { productDefinitionId: 'product-1', modelName: 'Basic Polo', colorQuantities: [{ color: ' Beyaz ', quantity: 100 }], fabricName: ' Penye ', gsm: ' 180 ', fabricProperties: '', productDetails: '' };
   const orderInput = { orderType: 'Stok İçin Üretim' as const, date: '2026-09-25', note: '', items: [item] };
   for (const fabricName of ['', '   ']) await assert.rejects(repo.createOrder({ ...orderInput, items: [{ ...item, fabricName }] }), /Kumaş Adı/);
-  await assert.rejects(repo.createOrder({ ...orderInput, items: [{ ...item, gsm: '   ' }] }), /Gramaj/);
+
   assert.equal((await repo.listOrders()).length, 0);
   const order = await repo.createOrder(orderInput);
   assert.equal(order.items[0].fabricName, 'Penye');

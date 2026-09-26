@@ -25,6 +25,7 @@ export interface WorkflowStage {
 }
 export interface CompletionLine { rowId: string; size: string; good: number; waste: number }
 export interface ProductionRecord {
+  workflowVersion?: 2; cuttingOrderId?: string; productionDueDate?: string;
   productionName?: string;
   archived?: boolean; archivedAt?: string | null; archivedByOrderId?: string | null;
   deleted?: boolean; deletedAt?: string | null; deletedByOrderId?: string | null;
@@ -57,6 +58,7 @@ export interface NewProductionInput {
 }
 export type OrderType = 'Ön Sipariş' | 'Stok İçin Üretim';
 export interface ProductionOrderCard {
+  workflowVersion?: 2; orderName?: string;
   revision?: number;
   archived?: boolean; archivedAt?: string | null; dueDate?: string | null;
   deleted?: boolean; deletedAt?: string | null;
@@ -64,13 +66,14 @@ export interface ProductionOrderCard {
   items: ProductionOrderItem[]; productionCardIds: string[]; createdAt: string; updatedAt: string; legacy?: boolean;
 }
 export interface ProductionOrderItem {
+  instructions?: string[];
   modelName?: string;
   id: string; productDefinitionId: string; productName: string;
   colorQuantities: { color: string; quantity: number }[]; totalQuantity: number;
   fabricName: string; gsm: string; fabricProperties: string; productDetails: string;
 }
 export type ProductionLifecycle = Pick<ProductionRecord, 'archived' | 'archivedAt' | 'archivedByOrderId' | 'deleted' | 'deletedAt' | 'deletedByOrderId' | 'revision' | 'updatedAt'>;
-export interface WorkflowStore extends ProductionStore { productions?: ProductionRecord[]; nextProduction?: number; orderCards?: ProductionOrderCard[]; nextOrder?: number; productionLifecycle?: Record<string, ProductionLifecycle> }
+export interface WorkflowStore extends ProductionStore { cuttingOrders?: import('./cuttingWorkflow').CuttingOrder[]; nextCuttingOrder?: number; productions?: ProductionRecord[]; nextProduction?: number; orderCards?: ProductionOrderCard[]; nextOrder?: number; productionLifecycle?: Record<string, ProductionLifecycle> }
 export const cutRows = (p: ProductionRecord) => p.cuttingSheet.brandSections.flatMap((b) => b.rows.map((r) => ({ ...r, brandName: b.brandName })));
 export const cuttingTotal = (p: ProductionRecord) => cutRows(p).reduce((sum, r) => sum + (r.quantity ?? 0), 0);
 export const stageRemainingQuantity = (s: WorkflowStage) => s.sentQuantity - s.returnedQuantity;
@@ -80,7 +83,7 @@ const normalized = (s: string) => s.trim().toLocaleLowerCase('tr-TR');
 export const productionOrderId = (p: ProductionRecord) => p.orderCardId ?? `legacy-order:${p.legacy?.planId ?? p.id}`;
 export const pastalLocked = (p: ProductionRecord) => !!p.cuttingSheet.completedAt || p.productionStages.length > 0 || !!p.completion || !!p.stockTransfer;
 // A completed physical operation remains consumed even when its card is in Trash.
-export const reservesOrderQuantity = (p: ProductionRecord) => !p.deleted || pastalLocked(p);
+export const reservesOrderQuantity = (p: ProductionRecord) => !p.deleted || (p.workflowVersion === 2 ? p.productionStages.length > 0 || !!p.completion || !!p.stockTransfer : pastalLocked(p));
 export const productionDisplayName = (p: ProductionRecord) => p.productionName?.trim() || 'Üretim adı belirtilmemiş';
 export function orderAllocation(item: ProductionOrderItem, records: ProductionRecord[]) {
   return item.colorQuantities.map((row) => {
