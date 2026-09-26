@@ -77,3 +77,22 @@
   .ws-form:has(.order-item-card) > fieldset > .ws-actions .button { flex: 1 1 150px; }
 }
 @media print { .production-paper .common-size-display { break-inside: avoid; } }
+.record-actions { display: inline-flex; flex-wrap: wrap; gap: 8px; }
+.record-dialog-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 18px; background: #172c4b80; }
+.record-dialog { background: #fff; border-radius: 10px; padding: 24px; width: min(100%, 520px); max-height: 90dvh; overflow-y: auto; box-shadow: 0 16px 60px #172c4b40; color: #233247; font-size: 14px; line-height: 1.6; white-space: normal; }
+.record-dialog h2, .record-dialog > p { margin-bottom: 16px; }
+.record-dialog .ws-field + .ws-field { margin-top: 14px; }
+.record-dialog .ws-actions { margin-bottom: 0; }
+.order-customer-field { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.order-customer-field > .ws-field { width: 100%; }
+.ws-page .order-quick-add { font-size: 12px; padding: 7px 10px; min-height: 32px; width: auto; justify-self: start; align-self: flex-start; }
+.order-color-editor { grid-template-columns: minmax(160px, 260px) 110px auto; max-width: 520px; }
+.ws-actions .order-add-item { margin: 0 auto 0 0; }
+.production-identity { margin-bottom: 22px; }
+.production-cut-result { display: grid; grid-template-columns: minmax(140px, 2fr) repeat(3, minmax(80px, 1fr)); gap: 12px; margin-top: 16px; }
+@media(max-width:700px) {
+  .order-color-editor { grid-template-columns: minmax(0, 1fr) 90px; }
+  .production-cut-result { grid-template-columns: 1fr 1fr; }
+  .record-dialog { padding: 18px; }
+}
+.production-reference-heading { grid-column: 1 / -1; margin: 20px 0 4px; font-size: 13px; color: #506078; }

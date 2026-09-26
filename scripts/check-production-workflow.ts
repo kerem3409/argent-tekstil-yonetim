@@ -156,3 +156,39 @@ test('Eşzamanlı / eski ekran yazımı veri kaybetmez, limitler aşılmaz', asy
   const results = await Promise.allSettled([f.repository.addStage(p.id, p.revision, stage()), f.repository.addStage(p.id, p.revision, stage())]);
   assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1); assert.equal((await f.get(p.id)).productionStages.length, 1);
 });
+
+test('Eski planın grup arşiv/sil/geri yükle işlemleri ham geçmişi değiştirmez', async () => {
+  const f = await setup(); const old = createProductionRepository(() => f.storage, f.contacts);
+  const plan = await old.createPlan({ name: 'Eski', brand: 'Marka', total: 10, colors: [{ color: 'Siyah', quantity: 10 }], startDate: f.input.date, deliveryDate: '', status: 'Planlandı', note: '' });
+  const job = await old.startPlan(plan.id, f.input.date);
+  await old.addStage({ jobId: job.id, companyId: 'workshop', date: f.input.date, status: 'Tamamlandı', note: 'Geçmiş', lines: [{ operation: 'Nakış', quantity: 10, returned: 10, priceType: 'Adet Fiyatı', price: 2 }] });
+  const original = JSON.parse(f.values.get(PRODUCTION_STORAGE_KEY)!);
+  const p = (await f.repository.list())[0]; let order = (await f.repository.listOrders())[0];
+  order = await f.repository.setOrderArchived(order.id, order.revision ?? 0, true);
+  assert.equal((await f.get(p.id)).archived, true);
+  const pin = crypto.randomUUID(); await f.repository.deletionPin.setup(pin, pin);
+  order = await f.repository.deleteOrder(order.id, order.revision!, pin);
+  assert.equal((await f.get(p.id)).deleted, true);
+  order = await f.repository.restoreOrder(order.id, order.revision!);
+  order = await f.repository.setOrderArchived(order.id, order.revision!, false);
+  for (let i = 0; i < 3; i++) { assert.equal((await f.repository.list()).length, 1); assert.equal((await f.repository.listOrders()).length, 1); }
+  const restored = await f.get(p.id); assert.equal(restored.archived, false); assert.equal(restored.deleted, false);
+  assert.equal(order.productionCardIds[0], p.id);
+  const after = JSON.parse(f.values.get(PRODUCTION_STORAGE_KEY)!);
+  for (const key of ['plans', 'jobs', 'stages']) assert.deepEqual(after[key], original[key]);
+  assert.equal((await old.load()).stages.length, 1); assert.equal((await old.load()).stages[0].id, original.stages[0].id);
+  await f.repository.updateProduction(restored.id, restored.revision, { ...restored, note: 'Geri yükleme sonrası' });
+  const edited = await f.get(p.id); assert.equal(edited.revision, restored.revision + 1); assert.equal(edited.note, 'Geri yükleme sonrası');
+});
+
+test('Grup arşiv ve silme yazımı başarısızsa hiçbir kayıt kısmen değişmez', async () => {
+  const f = await setup(); const order = await f.repository.createOrder({ orderType: 'Stok İçin Üretim', date: f.input.date, note: '' });
+  await f.repository.create({ ...f.input, orderCardId: order.id });
+  const current = (await f.repository.listOrders())[0];
+  const pin = crypto.randomUUID(); await f.repository.deletionPin.setup(pin, pin);
+  const before = f.values.get(PRODUCTION_STORAGE_KEY); f.fail(PRODUCTION_STORAGE_KEY);
+  await assert.rejects(f.repository.setOrderArchived(current.id, current.revision!, true), /kaydedilemedi/);
+  assert.equal(f.values.get(PRODUCTION_STORAGE_KEY), before);
+  await assert.rejects(f.repository.deleteOrder(current.id, current.revision!, pin), /kaydedilemedi/);
+  assert.equal(f.values.get(PRODUCTION_STORAGE_KEY), before);
+});

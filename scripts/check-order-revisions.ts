@@ -190,8 +190,12 @@ test('Sipariş arşivi kalıcıdır, üretim tahsislerini korur ve eski revizyon
   assert.equal(archived.archived, true); assert.ok(archived.archivedAt);
   const reloaded = createWorkflowRepository(() => f.storage, f.deps, f.lock);
   assert.equal((await reloaded.listOrders()).find((o) => o.id === before.id)?.archived, true);
-  assert.deepEqual(await f.current(p.id), p);
+  const current = await f.current(p.id);
+  const { archived: _archived, archivedAt: _at, archivedByOrderId: _by, revision: _revision, updatedAt: _updated, ...business } = current;
+  const { revision: _beforeRevision, updatedAt: _beforeUpdated, ...beforeBusiness } = p;
+  assert.deepEqual(business, beforeBusiness);
   assert.deepEqual(archived.productionCardIds, [p.id]);
+  assert.equal((await f.current(p.id)).archived, archived.archived);
   assert.equal(orderAllocation(archived.items[0], await f.repo.list())[0].allocated, 500);
   await assert.rejects(f.repo.updateOrder(before.id, before.revision!, { ...before, note: 'Eski form' }), /başka bir işlemde/);
   await assert.rejects(f.repo.setOrderArchived(before.id, before.revision!, false), /başka bir işlemde/);
@@ -252,6 +256,127 @@ test('Eski üretimden türetilen sipariş arşivlenip açılırken kopyalanmaz',
   }
   archived = await f.repo.setOrderArchived(archived.id, archived.revision!, false);
   assert.deepEqual(archived.productionCardIds, [p.id]);
-  assert.deepEqual(await f.current(p.id), p);
+  const current = await f.current(p.id);
+  const { archived: _archived, archivedAt: _at, archivedByOrderId: _by, revision: _revision, updatedAt: _updated, ...business } = current;
+  const { revision: _beforeRevision, updatedAt: _beforeUpdated, ...beforeBusiness } = p;
+  assert.deepEqual(business, beforeBusiness);
   assert.equal(JSON.parse(f.values.get(PRODUCTION_STORAGE_KEY)!).orderCards.length, 1);
+});
+
+async function setupPin(f: Awaited<ReturnType<typeof setup>>) {
+  const pin = crypto.randomUUID(); await f.repo.deletionPin.setup(pin, pin); return pin;
+}
+
+test('Silme PIN olmadan veya yanlış PIN ile yazmaz; PIN düz metin tutulmaz', async () => {
+  const f = await setup(); const p = await f.repo.create(f.input()); const order = await f.currentOrder();
+  const snapshot = f.values.get(PRODUCTION_STORAGE_KEY);
+  await assert.rejects(f.repo.deleteOrder(order.id, order.revision!, ''), /Önce/);
+  await assert.rejects(f.repo.deletionPin.setup('123', '123'), /6–128/);
+  await assert.rejects(f.repo.deletionPin.setup('test-only', 'different'), /eşleşmiyor/);
+  const pin = await setupPin(f);
+  assert.ok([...f.values.values()].every((value) => !value.includes(pin)));
+  await assert.rejects(f.repo.deleteOrder(order.id, order.revision!, 'wrong'), /yanlış/);
+  await assert.rejects(f.repo.deleteProduction(p.id, p.revision, 'wrong'), /yanlış/);
+  assert.equal(f.values.get(PRODUCTION_STORAGE_KEY), snapshot);
+  await assert.rejects(f.repo.deletionPin.setup(pin, pin), /zaten/);
+  const reopened = createWorkflowRepository(() => f.storage, f.deps, f.lock);
+  await reopened.deletionPin.verify(pin);
+});
+
+test('Grup silme ve geri yükleme bağımsız silinen kartı geri getirmez; ilişkiler kalır', async () => {
+  const f = await setup(); const pin = await setupPin(f);
+  const first = await f.repo.create(f.input(300, 'FIRST')); const second = await f.repo.create(f.input(200, 'SECOND'));
+  await f.repo.deleteProduction(first.id, first.revision, pin);
+  const before = await f.currentOrder();
+  const removed = await f.repo.deleteOrder(before.id, before.revision!, pin);
+  assert.equal(removed.deleted, true); assert.ok(removed.deletedAt);
+  assert.ok((await f.repo.list()).every((p) => p.deleted));
+  assert.equal((await f.current(first.id)).deletedByOrderId, null);
+  assert.equal((await f.current(second.id)).deletedByOrderId, before.id);
+  await assert.rejects(f.repo.restoreProduction(second.id, (await f.current(second.id)).revision), /Önce bağlı siparişi/);
+  const restored = await f.repo.restoreOrder(removed.id, removed.revision!);
+  assert.equal(restored.deleted, false); assert.equal(restored.deletedAt, null);
+  assert.equal((await f.current(first.id)).deleted, true); assert.equal((await f.current(second.id)).deleted, false);
+  assert.deepEqual(new Set(restored.productionCardIds), new Set([first.id, second.id]));
+  assert.equal(orderAllocation(restored.items[0], await f.repo.list())[0].allocated, 200);
+  assert.equal(JSON.parse(f.values.get(PRODUCTION_STORAGE_KEY)!).productions.length, 2);
+});
+
+test('Tek kart silme rezervasyonu serbest bırakır; yeniden tahsis varsa geri yükleme atomik reddedilir', async () => {
+  const f = await setup(); const pin = await setupPin(f);
+  const p = await f.repo.create(f.input(700));
+  await f.repo.deleteProduction(p.id, p.revision, pin);
+  assert.ok(!(await f.currentOrder()).deleted);
+  assert.equal(orderAllocation(f.order.items[0], await f.repo.list())[0].allocated, 0);
+  const next = await f.repo.create(f.input(500, 'NEXT'));
+  const deleted = await f.current(p.id); const before = f.values.get(PRODUCTION_STORAGE_KEY);
+  await assert.rejects(f.repo.restoreProduction(p.id, deleted.revision), /ayrılan miktar/);
+  assert.equal(f.values.get(PRODUCTION_STORAGE_KEY), before);
+  await f.repo.deleteProduction(next.id, next.revision, pin);
+  await f.repo.restoreProduction(p.id, deleted.revision);
+  assert.equal(orderAllocation(f.order.items[0], await f.repo.list())[0].allocated, 700);
+  await assert.rejects(f.repo.restoreProduction(p.id, deleted.revision), /bulunamadı/);
+});
+
+test('Restore ve yeni tahsis yarışında yalnız biri kazanır; tahsis limiti aşılmaz', async () => {
+  const f = await setup(); const pin = await setupPin(f); const p = await f.repo.create(f.input(1000));
+  const deleted = await f.repo.deleteProduction(p.id, p.revision, pin);
+  const results = await Promise.allSettled([f.repo.restoreProduction(p.id, deleted.revision), f.repo.create(f.input(1000, 'NEXT'))]);
+  assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
+  assert.equal(orderAllocation(f.order.items[0], await f.repo.list())[0].allocated, 1000);
+});
+
+test('Kesilmiş üretim silinince tüketilmiş miktar, kesim ve aşama geçmişi korunur', async () => {
+  const f = await setup(); const pin = await setupPin(f); let p = await f.repo.create(f.input(500));
+  const sections = structuredClone(p.cuttingSheet.brandSections); Object.assign(sections[0].rows[0], { rollCount: 2, kg: 30, quantity: 500 });
+  await f.repo.saveCutting(p.id, p.revision, sections, true); p = await f.current(p.id);
+  const deleted = await f.repo.deleteProduction(p.id, p.revision, pin);
+  assert.equal(orderAllocation(f.order.items[0], await f.repo.list())[0].allocated, 500);
+  assert.deepEqual(deleted.cuttingSheet, p.cuttingSheet);
+  await assert.rejects(f.repo.create(f.input(600, 'NEXT')), /en fazla miktar/);
+  await assert.rejects(f.repo.updateProduction(deleted.id, deleted.revision, { ...deleted, note: 'change' }), /Çöp Kutusundaki/);
+  await assert.rejects(f.repo.transfer(deleted.id), /Çöp Kutusundaki/);
+});
+
+test('Arşivden ve Çöp Kutusundan geri alma önceki arşiv durumunu korur', async () => {
+  const f = await setup(); const pin = await setupPin(f); const p = await f.repo.create(f.input());
+  const archived = await f.repo.setOrderArchived(f.order.id, (await f.currentOrder()).revision!, true);
+  assert.equal((await f.current(p.id)).archived, true);
+  await assert.rejects(f.repo.create(f.input(100)), /Arşivdeki/);
+  const deleted = await f.repo.deleteOrder(archived.id, archived.revision!, pin);
+  const restored = await f.repo.restoreOrder(deleted.id, deleted.revision!);
+  assert.equal(restored.archived, true); assert.equal(restored.deleted, false);
+  assert.equal((await f.current(p.id)).archived, true);
+  await f.repo.setOrderArchived(restored.id, restored.revision!, false);
+  assert.equal((await f.current(p.id)).archived, false);
+});
+
+test('Üretim Adı değişir, sipariş ürünü kalır; ortak pastal kesim sonrası kilitlenir ve aşama devam eder', async () => {
+  const f = await setup();
+  const { defaultSizeDistribution, completionTargets } = await import('../src/domain/productionWorkflow.ts');
+  let p = await f.repo.create({ ...f.input(), plannedSizeDistributions: undefined, productionName: 'Palo Yazlık', sizeDistribution: defaultSizeDistribution('Yetişkin') });
+  await f.repo.updateProduction(p.id, p.revision, { ...p, productionName: 'Palo Yeni Ad' }); p = await f.current(p.id);
+  assert.equal(p.productionName, 'Palo Yeni Ad'); assert.equal(p.productName, 'Basic Polo 2026'); assert.equal(p.orderItemId, f.order.items[0].id);
+  const sizes = structuredClone(p.sizeDistribution); const sections = structuredClone(p.cuttingSheet.brandSections);
+  Object.assign(sections[0].rows[0], { rollCount: 2, kg: 20, quantity: 499 });
+  await f.repo.saveCutting(p.id, p.revision, sections, true); p = await f.current(p.id);
+  assert.deepEqual(p.sizeDistribution, sizes);
+  await assert.rejects(f.repo.updateProduction(p.id, p.revision, { ...p, sizeDistribution: { S: 2 } }), /kilitlidir/);
+  await assert.rejects(f.repo.saveCommonSizeDistribution(p.id, p.revision, p.sizeSeries, { S: 2 }), /kilitlidir/);
+  await assert.rejects(f.repo.updateProduction(p.id, p.revision, { ...p, sizeSeries: 'Çocuk' }), /değiştirilemez/);
+  await f.repo.addStage(p.id, p.revision, { processType: 'Dikim', companyId: f.tailor.id, rowId: sections[0].rows[0].id, sentQuantity: 499, returnedQuantity: 499, priceType: 'Adet Fiyatı', price: 1, sentDate: p.date, returnDate: p.date, status: 'Tamamlandı', note: '' });
+  p = await f.current(p.id);
+  const targets = completionTargets(p); assert.equal(targets.reduce((sum, t) => sum + t.quantity, 0), 499);
+  await f.repo.complete(p.id, p.revision, targets.map((t) => ({ rowId: t.rowId, size: t.size, good: t.quantity, waste: 0 })), p.date, '');
+  assert.equal((await f.current(p.id)).completion?.good, 499);
+  assert.deepEqual((await f.current(p.id)).sizeDistribution, sizes);
+});
+
+test('Eski arşivli siparişin üretimleri yazmasız gizlenir ve geri alınabilir', async () => {
+  const f = await setup(); const p = await f.repo.create(f.input());
+  const raw = JSON.parse(f.values.get(PRODUCTION_STORAGE_KEY)!); raw.orderCards[0].archived = true; raw.orderCards[0].archivedAt = '2026-09-01';
+  f.values.set(PRODUCTION_STORAGE_KEY, JSON.stringify(raw)); const before = f.values.get(PRODUCTION_STORAGE_KEY);
+  assert.equal((await f.current(p.id)).archived, true); assert.equal(f.values.get(PRODUCTION_STORAGE_KEY), before);
+  const order = await f.currentOrder(); await f.repo.setOrderArchived(order.id, order.revision!, false);
+  assert.equal((await f.current(p.id)).archived, false); assert.equal((await f.repo.list()).length, 1);
 });

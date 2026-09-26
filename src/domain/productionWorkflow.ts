@@ -8,6 +8,7 @@ export const sizeSeries = {
   'Battal Boy': ['4XL', '5XL', '6XL'],
 } as const;
 export type SizeSeries = keyof typeof sizeSeries;
+export const defaultSizeDistribution = (series: SizeSeries): CommonSizeDistribution => Object.fromEntries(sizeSeries[series].map((size) => [size, 1]));
 export const processes = ['Nakış', 'Baskı', 'Dikim', 'Ütü & Paket', 'Diğer'] as const;
 export type Process = typeof processes[number];
 export const productionStatuses = ['Kesim Bekliyor', 'Kesim Tamamlandı', 'Üretimde', 'Stoğa Aktarım Bekliyor', 'Tamamlandı'] as const;
@@ -24,6 +25,9 @@ export interface WorkflowStage {
 }
 export interface CompletionLine { rowId: string; size: string; good: number; waste: number }
 export interface ProductionRecord {
+  productionName?: string;
+  archived?: boolean; archivedAt?: string | null; archivedByOrderId?: string | null;
+  deleted?: boolean; deletedAt?: string | null; deletedByOrderId?: string | null;
   id: string; productionNo: string; productDefinitionId: string; productId: string; productName: string;
   fabricId: string; fabricName: string; gsm: string; sizeSeries: SizeSeries;
   cuttingMode: 'Kumaştan Çıktığı Kadar' | 'Hedef Adet'; targetQuantity: number | null;
@@ -43,6 +47,7 @@ export interface ProductionRecord {
   legacy?: { planId: string; jobId: string; planStatus: string; missingSizes: boolean };
 }
 export interface NewProductionInput {
+  productionName?: string;
   plannedSizeDistributions?: PlannedSizeDistribution[];
   sizeDistribution?: CommonSizeDistribution;
   embroideryCompanyId?: string; printingCompanyId?: string; ironingPackagingCompanyId?: string;
@@ -54,6 +59,7 @@ export type OrderType = 'Ön Sipariş' | 'Stok İçin Üretim';
 export interface ProductionOrderCard {
   revision?: number;
   archived?: boolean; archivedAt?: string | null; dueDate?: string | null;
+  deleted?: boolean; deletedAt?: string | null;
   id: string; orderNo: string; orderType: OrderType; customerId?: string; date: string; note: string;
   items: ProductionOrderItem[]; productionCardIds: string[]; createdAt: string; updatedAt: string; legacy?: boolean;
 }
@@ -63,16 +69,22 @@ export interface ProductionOrderItem {
   colorQuantities: { color: string; quantity: number }[]; totalQuantity: number;
   fabricName: string; gsm: string; fabricProperties: string; productDetails: string;
 }
-export interface WorkflowStore extends ProductionStore { productions?: ProductionRecord[]; nextProduction?: number; orderCards?: ProductionOrderCard[]; nextOrder?: number }
+export type ProductionLifecycle = Pick<ProductionRecord, 'archived' | 'archivedAt' | 'archivedByOrderId' | 'deleted' | 'deletedAt' | 'deletedByOrderId' | 'revision' | 'updatedAt'>;
+export interface WorkflowStore extends ProductionStore { productions?: ProductionRecord[]; nextProduction?: number; orderCards?: ProductionOrderCard[]; nextOrder?: number; productionLifecycle?: Record<string, ProductionLifecycle> }
 export const cutRows = (p: ProductionRecord) => p.cuttingSheet.brandSections.flatMap((b) => b.rows.map((r) => ({ ...r, brandName: b.brandName })));
 export const cuttingTotal = (p: ProductionRecord) => cutRows(p).reduce((sum, r) => sum + (r.quantity ?? 0), 0);
 export const stageRemainingQuantity = (s: WorkflowStage) => s.sentQuantity - s.returnedQuantity;
 export const workflowStageAmount = (s: WorkflowStage) => s.legacyLines ? s.legacyLines.reduce((sum, l) => sum + amount(l.priceType === 'Adet Fiyatı' ? l.quantity : 1, l.priceMinor), 0) : amount(s.priceType === 'Adet Fiyatı' ? s.sentQuantity : 1, s.priceMinor);
 export const subcontractRows = (records: ProductionRecord[]) => records.flatMap((p) => p.productionStages.filter((s) => s.companyId).map((s) => ({ production: p, stage: s, remaining: stageRemainingQuantity(s), total: workflowStageAmount(s) })));
 const normalized = (s: string) => s.trim().toLocaleLowerCase('tr-TR');
+export const productionOrderId = (p: ProductionRecord) => p.orderCardId ?? `legacy-order:${p.legacy?.planId ?? p.id}`;
+export const pastalLocked = (p: ProductionRecord) => !!p.cuttingSheet.completedAt || p.productionStages.length > 0 || !!p.completion || !!p.stockTransfer;
+// A completed physical operation remains consumed even when its card is in Trash.
+export const reservesOrderQuantity = (p: ProductionRecord) => !p.deleted || pastalLocked(p);
+export const productionDisplayName = (p: ProductionRecord) => p.productionName?.trim() || 'Üretim adı belirtilmemiş';
 export function orderAllocation(item: ProductionOrderItem, records: ProductionRecord[]) {
   return item.colorQuantities.map((row) => {
-    const allocated = records.filter((p) => p.orderItemId === item.id).flatMap((p) => p.selectedColorQuantities ?? []).filter((r) => normalized(r.color) === normalized(row.color)).reduce((sum, r) => sum + r.quantity, 0);
+    const allocated = records.filter((p) => p.orderItemId === item.id && reservesOrderQuantity(p)).flatMap((p) => p.selectedColorQuantities ?? []).filter((r) => normalized(r.color) === normalized(row.color)).reduce((sum, r) => sum + r.quantity, 0);
     return { ...row, allocated, remaining: row.quantity - allocated };
   });
 }
@@ -103,6 +115,7 @@ export function commonSizeDistribution(p: ProductionRecord): CommonSizeDistribut
   return p.sizeDistribution ?? p.sizeDistributions.find((row) => Object.keys(row.sizes).length > 0)?.sizes;
 }
 export function validateNewProduction(input: NewProductionInput) {
+  if (input.productionName !== undefined) requireText(input.productionName, 'Üretim Adı', 200);
   requireText(input.productDefinitionId, 'Ürün'); checkDate(input.date);
   if (!Object.hasOwn(sizeSeries, input.sizeSeries)) throw new Error('Beden serisi seçin.');
   if (!['Kumaştan Çıktığı Kadar', 'Hedef Adet'].includes(input.cuttingMode)) throw new Error('Kesim şekli seçin.');
@@ -164,6 +177,7 @@ export function normalizeProductions(data: WorkflowStore, receipts: ProductionRe
     // card per brand so migration is deterministic and repeatable.
     if (p.orderCardId || p.cuttingSheet.brandSections.length <= 1 || !p.legacy) { records.push(p); continue; }
     for (const section of p.cuttingSheet.brandSections) {
+      if (saved.some((record) => record.id === `${p.id}:brand:${section.id}`)) continue;
       records.push({ ...p, id: `${p.id}:brand:${section.id}`, productionNo: `${p.productionNo}-${section.brandName}`, brand: section.brandName, orderCardId: `legacy-order:${p.id}`, productName: p.productName, cuttingSheet: { ...p.cuttingSheet, brandSections: [section] }, sizeDistributions: p.sizeDistributions.filter((d) => section.rows.some((r) => r.id === d.rowId)), productionStages: p.productionStages.map((s) => ({ ...s, rowId: section.rows.some((r) => r.id === s.rowId) ? s.rowId : '' })), legacy: { ...(p.legacy ?? { planId: p.id, jobId: '', planStatus: p.status }), missingSizes: p.legacy?.missingSizes ?? false } });
     }
   }
@@ -182,6 +196,12 @@ export function normalizeProductions(data: WorkflowStore, receipts: ProductionRe
     });
   }
   return records.map((p) => {
+    const lifecycle = data.productionLifecycle?.[p.id];
+    if (lifecycle) p = { ...p, ...lifecycle };
+    // Old archived orders predate cascading flags. Inherit their state without writing a migration.
+    const order = data.orderCards?.find((o) => o.id === productionOrderId(p));
+    if (order?.archived && !p.archived) p = { ...p, archived: true, archivedAt: order.archivedAt, archivedByOrderId: order.id };
+    if (order?.deleted && !p.deleted) p = { ...p, deleted: true, deletedAt: order.deletedAt, deletedByOrderId: order.id };
     const receipt = receipts.find((r) => r.jobId === (p.legacy?.jobId || p.id));
     return receipt ? { ...p, status: 'Tamamlandı', stockTransfer: { stockIds: receipt.stockIds, date: receipt.date }, completion: p.completion ?? { lines: [], good: receipt.good, waste: receipt.waste, date: receipt.date, note: receipt.note } } : p;
   });

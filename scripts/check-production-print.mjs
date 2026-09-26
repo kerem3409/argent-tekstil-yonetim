@@ -27,7 +27,7 @@ test('Kesim ve takip A4 ekranları tüm beden serileriyle render olur; kesimde s
     const newForm = renderToStaticMarkup(React.createElement(NewProductionForm, { contacts: [], saved() {} }));
     assert.ok(newForm.includes('Ürün Seç')); assert.ok(!newForm.includes('Parti'));
     const editor = renderToStaticMarkup(React.createElement(CuttingEditor, { production, done() {} }));
-    assert.ok(editor.includes('+ Marka Ekle')); assert.ok(editor.includes('+ Renk Ekle')); assert.ok(!editor.includes('Gönderilen'));
+    assert.ok(!editor.includes('+ Marka Ekle')); assert.ok(!editor.includes('Markayı Kaldır')); assert.ok(!editor.includes('+ Renk Ekle')); assert.ok(!editor.includes('common-size-input')); assert.ok(!editor.includes('Gönderilen'));
     const order = { orderNo: 'SP-1234', customerId: 'customer', items: [{ id: 'item', productName: 'Polo Tanımı' }] };
     const requested = [{ color: 'Beyaz', quantity: 150 }, { color: 'Siyah', quantity: 200 }, { color: 'Bebe Mavisi', quantity: 300 }];
     const p = { ...production, orderItemId: 'item', brand: 'ARGENT', modelName: 'Model 2026', fabricProperties: 'Likralı', note: 'Kesim notu', sizeDistribution: { S: 1, M: 2, L: 2, XL: 2, '2XL': 1, '3XL': 1 }, selectedColorQuantities: requested,

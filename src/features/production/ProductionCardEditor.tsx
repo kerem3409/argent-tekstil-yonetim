@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { Contact, SubcontractService } from '../contacts/model';
 import { CompanySelect, Field, Form, Section, text } from '../shared/WorkshopUI';
 import { workflowRepository } from '../../data/production';
-import { sizeSeries, validateCommonSizeDistribution } from '../../domain/productionWorkflow';
+import { defaultSizeDistribution, pastalLocked, sizeSeries, validateCommonSizeDistribution } from '../../domain/productionWorkflow';
 import type { CommonSizeDistribution, ProductionRecord, SizeSeries } from '../../domain/productionWorkflow';
 
 export const assignmentFields = [
@@ -16,7 +16,7 @@ export function AssignmentFields({ contacts, production }: { contacts: Contact[]
 }
 export function PlannedSizes({ series, value, onChange, onSeriesChange, locked = false }: { series: SizeSeries; value: CommonSizeDistribution; onChange: (value: CommonSizeDistribution) => void; onSeriesChange: (series: SizeSeries) => void; locked?: boolean }) {
   const total = Object.values(value).reduce((sum, amount) => sum + (amount || 0), 0);
-  return <Section title="Beden Serisi / Pastal Dağılımı"><p className="ws-hint">Bu beden/pastal dağılımı Üretim Kartındaki tüm renklere ortak uygulanır.</p><Field label="Beden Serisi"><select disabled={locked} value={series} onChange={(e) => { onSeriesChange(e.target.value as SizeSeries); onChange({}); }}>{Object.keys(sizeSeries).map((s) => <option key={s}>{s}</option>)}</select></Field>
+  return <Section title="Beden Serisi / Pastal Dağılımı"><p className="ws-hint">Bu beden/pastal dağılımı Üretim Kartındaki tüm renklere ortak uygulanır.</p><Field label="Beden Serisi"><select disabled={locked} value={series} onChange={(e) => { onSeriesChange(e.target.value as SizeSeries); onChange(defaultSizeDistribution(e.target.value as SizeSeries)); }}>{Object.keys(sizeSeries).map((s) => <option key={s}>{s}</option>)}</select></Field>
     <div className="common-size-grid">{sizeSeries[series].map((size) => <Field key={size} label={size}><input aria-label={size} className="common-size-input" type="number" min={0} step={1} disabled={locked} value={value[size] || ''} onChange={(e) => onChange({ ...value, [size]: Number(e.target.value) })} /></Field>)}</div>
     <p className="ws-hint">Seri Toplamı: {total} parça</p>
   </Section>;
@@ -27,12 +27,12 @@ export function ProductionCardEditor({ production: p, contacts, done }: { produc
   const [sizes, setSizes] = useState(p.sizeDistribution ?? {});
   return <Section title="Üretim Kartını Güncelle"><p className="ws-hint">Marka değişiyorsa yeni Üretim Kartı oluşturulmalıdır. Sipariş bağlantıları ve ayrılan renk/adetler korunur.</p>
     <Form label="Üretim Kartını Güncelle" onDone={done} validate={() => { try { if (Object.keys(sizes).length) validateCommonSizeDistribution(series, sizes); return []; } catch (e) { return [e instanceof Error ? e.message : 'Beden dağılımını kontrol edin.']; } }} onSubmit={(f) => workflowRepository.updateProduction(p.id, p.revision, {
-      brand: p.brand, sizeSeries: series, sizeDistribution: sizes,
+      productionName: text(f, 'productionName') || undefined, brand: p.brand, sizeSeries: series, sizeDistribution: sizes,
       cutterCompanyId: text(f, 'cutterCompanyId'), embroideryCompanyId: text(f, 'embroideryCompanyId'), printingCompanyId: text(f, 'printingCompanyId'), sewingCompanyId: text(f, 'sewingCompanyId'), ironingPackagingCompanyId: text(f, 'ironingPackagingCompanyId'),
       fabricProperties: text(f, 'fabricProperties'), productInstructions: text(f, 'instructions'), note: text(f, 'note'),
     })}>
-      <Field label="Marka"><input readOnly value={p.brand ?? ''} /></Field>
-      <PlannedSizes series={series} value={sizes} onChange={setSizes} onSeriesChange={setSeries} locked={!!p.cuttingSheet.completedAt} />
+      <div className="ws-grid production-identity"><Field label="Üretim No"><input readOnly value={p.productionNo} /></Field><Field label="Üretim Adı"><input name="productionName" defaultValue={p.productionName ?? ''} maxLength={200} /></Field><Field label="Tarih"><input readOnly value={p.date} /></Field><Field label="Marka"><input readOnly value={p.brand ?? ''} /></Field></div>
+      <PlannedSizes series={series} value={sizes} onChange={setSizes} onSeriesChange={setSeries} locked={pastalLocked(p)} />
       <div className="ws-grid"><AssignmentFields contacts={contacts} production={p} /><Field label="Kumaş Özellikleri"><textarea name="fabricProperties" defaultValue={p.fabricProperties} maxLength={2000} /></Field><Field label="Ürün Detayı / Talimat"><textarea name="instructions" defaultValue={p.productInstructions} maxLength={2000} /></Field><Field label="Not"><textarea name="note" defaultValue={p.note} maxLength={2000} /></Field></div>
       <button type="button" className="button ws-secondary" onClick={done}>Vazgeç</button>
     </Form>

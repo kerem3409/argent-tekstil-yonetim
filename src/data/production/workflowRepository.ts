@@ -1,3 +1,4 @@
+import { createDeletionPin } from './deletionPin.ts';
 import { createStore } from '../shared/store.ts';
 import type { StoragePort, StoreLock } from '../shared/store';
 import type { ContactRepository } from '../contacts/repository';
@@ -6,12 +7,12 @@ import type { ProductRepository } from '../products/repository';
 import type { Fabric } from '../../domain/inventory';
 import { checkDate, minor, quantity, requireText, uid } from '../../domain/common.ts';
 import { validateProductionStore } from './repository.ts';
-import { completionTargets, cuttingTotal, cutRows, normalizeOrderCards, normalizeProductions, processes, productionStatuses, sizeSeries, validateCutting, validateNewProduction, validateSizes, validateCommonSizeDistribution, validatePlannedSizes, orderAllocation, workflowStageAmount } from '../../domain/productionWorkflow.ts';
+import { pastalLocked, reservesOrderQuantity, productionOrderId, completionTargets, cuttingTotal, cutRows, normalizeOrderCards, normalizeProductions, processes, productionStatuses, sizeSeries, validateCutting, validateNewProduction, validateSizes, validateCommonSizeDistribution, validatePlannedSizes, orderAllocation, workflowStageAmount } from '../../domain/productionWorkflow.ts';
 import type { BrandSection, CompletionLine, NewProductionInput, OrderType, Process, ProductionOrderCard, ProductionOrderItem, ProductionRecord, SizeDistribution, WorkflowStage, WorkflowStore } from '../../domain/productionWorkflow';
 
 export type OrderItemInput = Omit<ProductionOrderItem, 'id' | 'productName' | 'totalQuantity'> & { id?: string };
 export interface OrderInput { orderType: OrderType; customerId?: string; date: string; dueDate?: string | null; note: string; items?: OrderItemInput[] }
-export type ProductionUpdate = Pick<ProductionRecord, 'brand' | 'sizeSeries' | 'cutterCompanyId' | 'sewingCompanyId' | 'embroideryCompanyId' | 'printingCompanyId' | 'ironingPackagingCompanyId' | 'fabricProperties' | 'productInstructions' | 'note' | 'plannedSizeDistributions' | 'sizeDistribution'>;
+export type ProductionUpdate = Pick<ProductionRecord, 'productionName' | 'brand' | 'sizeSeries' | 'cutterCompanyId' | 'sewingCompanyId' | 'embroideryCompanyId' | 'printingCompanyId' | 'ironingPackagingCompanyId' | 'fabricProperties' | 'productInstructions' | 'note' | 'plannedSizeDistributions' | 'sizeDistribution'>;
 export const PRODUCTION_STORAGE_KEY = 'argent-tekstil.production.v1';
 export interface WorkflowStageInput { processType: Process; companyId: string; rowId: string; sentQuantity: number; returnedQuantity: number; priceType: WorkflowStage['priceType']; price: number; sentDate: string; returnDate: string; status: WorkflowStage['status']; note: string }
 interface Dependencies {
@@ -43,6 +44,7 @@ function validateWorkflowStore(value: unknown) {
 }
 export function createWorkflowRepository(storage: () => StoragePort, deps: Dependencies, lock?: StoreLock) {
   const store = createStore<WorkflowStore>(PRODUCTION_STORAGE_KEY, () => ({ version: 1, plans: [], jobs: [], stages: [], nextPlan: 1, nextJob: 1, nextStage: 1, productions: [], nextProduction: 1, orderCards: [], nextOrder: 1 }), validateWorkflowStore, storage, lock);
+  const deletionPin = createDeletionPin(storage, lock);
   async function records(data: WorkflowStore) { return normalizeProductions(data, (await deps.products.load()).productionReceipts); }
   async function company(id: string) { if (id && (await deps.contacts.get(id))?.status !== 'Aktif') throw new Error('Aktif bir firma / kişi seçin.'); }
   async function orderItems(items: OrderItemInput[] = [], previous: ProductionOrderItem[] = []) {
@@ -75,9 +77,11 @@ export function createWorkflowRepository(storage: () => StoragePort, deps: Depen
     return store.transact(async (data) => {
       const p = (await records(data)).find((p) => p.id === id);
       if (!p) throw new Error('Üretim bulunamadı.');
+      if (p.archived || p.deleted) throw new Error('Arşivdeki veya Çöp Kutusundaki üretim değiştirilemez. Önce geri alın.');
       if (p.revision !== revision) throw new Error('Kayıt başka bir işlemde değişti. Sayfayı yenileyip tekrar deneyin.');
       const result = await work(p); p.updatedAt = new Date().toISOString(); p.revision++;
       data.productions = [...(data.productions ?? []).filter((r) => r.id !== id), p];
+      if (data.productionLifecycle) delete data.productionLifecycle[id];
       return result;
     });
   }
@@ -90,18 +94,103 @@ export function createWorkflowRepository(storage: () => StoragePort, deps: Depen
     if (status === 'İşlemde' && returned > 0) throw new Error('Gelen adet varsa Kısmi Geldi veya Tamamlandı seçin.');
     if (returned || returnDate) { checkDate(returnDate); if (returnDate < sentDate) throw new Error('Dönüş tarihi gönderimden önce olamaz.'); }
   }
+  function saveRecord(data: WorkflowStore, p: ProductionRecord) {
+    const next = { ...p, updatedAt: new Date().toISOString(), revision: p.revision + 1 };
+    // Derived historical cards receive metadata only; their original plans/stages stay intact.
+    if (!(data.productions ?? []).some((r) => r.id === p.id)) {
+      const { archived, archivedAt, archivedByOrderId, deleted, deletedAt, deletedByOrderId, revision, updatedAt } = next;
+      (data.productionLifecycle ??= {})[p.id] = { archived, archivedAt, archivedByOrderId, deleted, deletedAt, deletedByOrderId, revision, updatedAt };
+    } else {
+      data.productions = [...(data.productions ?? []).filter((r) => r.id !== p.id), next];
+      if (data.productionLifecycle) delete data.productionLifecycle[p.id];
+    }
+    return next;
+  }
+  function requireRevision(actual: number | undefined, expected: number) {
+    if ((actual ?? 0) !== expected) throw new Error('Kayıt başka bir işlemde değişti. Sayfayı yenileyip tekrar deneyin.');
+  }
+  function validateRestoration(orders: ProductionOrderCard[], all: ProductionRecord[], restored: ProductionRecord[]) {
+    for (const p of restored) {
+      const order = orders.find((o) => o.id === productionOrderId(p));
+      if (order?.deleted) throw new Error('Önce bağlı siparişi Çöp Kutusundan geri yükleyin.');
+      if (!p.orderItemId) continue;
+      const item = order?.items.find((i) => i.id === p.orderItemId);
+      if (!item || item.productDefinitionId !== p.productDefinitionId) throw new Error('Bağlı sipariş kalemi değişmiş. Geri yükleme yapılamadı.');
+      for (const row of p.selectedColorQuantities ?? []) {
+        if (!item.colorQuantities.some((q) => colorKey(q.color) === colorKey(row.color))) throw new Error('Siparişteki renk değişmiş. Geri yükleme yapılamadı.');
+      }
+      if (orderAllocation(item, all).some((row) => row.remaining < 0)) throw new Error('Geri yüklenemiyor: ayrılan miktar başka üretimde kullanılmış veya sipariş adedi azaltılmış. Önce tahsisleri düzenleyin.');
+    }
+  }
   return {
+    deletionPin,
     async list() { const data = await store.load(); return records(data); },
     async listOrders() { const data = await store.load(); return normalizeOrderCards(data, await records(data)); },
     async setOrderArchived(id: string, revision: number, archived: boolean) {
       return store.transact(async (data) => {
-        const order = normalizeOrderCards(data, await records(data)).find((o) => o.id === id);
+        const all = await records(data);
+        const order = normalizeOrderCards(data, all).find((o) => o.id === id);
         if (!order) throw new Error('Sipariş kartı bulunamadı.');
+        if (order.deleted) throw new Error('Çöp Kutusundaki sipariş arşivlenemez.');
         if ((order.revision ?? 0) !== revision) throw new Error('Sipariş başka bir işlemde değişti. Sayfayı yenileyip tekrar deneyin.');
         const now = new Date().toISOString();
+        for (const p of all.filter((p) => productionOrderId(p) === id)) {
+          if (archived && !p.archived) saveRecord(data, { ...p, archived: true, archivedAt: now, archivedByOrderId: id });
+          else if (!archived && p.archivedByOrderId === id) saveRecord(data, { ...p, archived: false, archivedAt: null, archivedByOrderId: null });
+        }
         const updated = { ...order, archived, archivedAt: archived ? now : null, updatedAt: now, revision: revision + 1 };
         data.orderCards = [...(data.orderCards ?? []).filter((o) => o.id !== id), updated];
         return updated;
+      });
+    },
+    async deleteOrder(id: string, revision: number, pin: string) {
+      await deletionPin.verify(pin);
+      return store.transact(async (data) => {
+        const all = await records(data);
+        const order = normalizeOrderCards(data, all).find((o) => o.id === id);
+        if (!order || order.deleted) throw new Error('Aktif sipariş kaydı bulunamadı.');
+        requireRevision(order.revision, revision);
+        const now = new Date().toISOString();
+        for (const p of all.filter((p) => productionOrderId(p) === id && !p.deleted)) saveRecord(data, { ...p, deleted: true, deletedAt: now, deletedByOrderId: id });
+        const updated = { ...order, deleted: true, deletedAt: now, revision: revision + 1, updatedAt: now };
+        data.orderCards = [...(data.orderCards ?? []).filter((o) => o.id !== id), updated];
+        return updated;
+      });
+    },
+    async deleteProduction(id: string, revision: number, pin: string) {
+      await deletionPin.verify(pin);
+      return store.transact(async (data) => {
+        const p = (await records(data)).find((p) => p.id === id);
+        if (!p || p.deleted) throw new Error('Üretim bulunamadı veya zaten Çöp Kutusunda.');
+        requireRevision(p.revision, revision);
+        return saveRecord(data, { ...p, deleted: true, deletedAt: new Date().toISOString(), deletedByOrderId: null });
+      });
+    },
+    async restoreOrder(id: string, revision: number) {
+      return store.transact(async (data) => {
+        const all = await records(data);
+        const orders = normalizeOrderCards(data, all);
+        const order = orders.find((o) => o.id === id);
+        if (!order?.deleted) throw new Error('Sipariş Çöp Kutusunda bulunamadı.');
+        requireRevision(order.revision, revision);
+        const restored = all.filter((p) => p.deleted && p.deletedByOrderId === id).map((p) => ({ ...p, deleted: false, deletedAt: null, deletedByOrderId: null }));
+        const updated = { ...order, deleted: false, deletedAt: null, revision: revision + 1, updatedAt: new Date().toISOString() };
+        const nextOrders = orders.map((o) => o.id === id ? updated : o);
+        const nextRecords = all.map((p) => restored.find((r) => r.id === p.id) ?? p);
+        validateRestoration(nextOrders, nextRecords, restored);
+        restored.forEach((p) => saveRecord(data, p));
+        data.orderCards = [...(data.orderCards ?? []).filter((o) => o.id !== id), updated];
+        return updated;
+      });
+    },
+    async restoreProduction(id: string, revision: number) {
+      return store.transact(async (data) => {
+        const all = await records(data); const p = all.find((p) => p.id === id);
+        if (!p?.deleted) throw new Error('Üretim Çöp Kutusunda bulunamadı.');
+        requireRevision(p.revision, revision);
+        const restored = { ...p, deleted: false, deletedAt: null, deletedByOrderId: null };
+        validateRestoration(normalizeOrderCards(data, all), all.map((r) => r.id === id ? restored : r), [restored]);
+        return saveRecord(data, restored);
       });
     },
     async createOrder(input: OrderInput) {
@@ -119,6 +208,7 @@ export function createWorkflowRepository(storage: () => StoragePort, deps: Depen
         const order = normalizeOrderCards(data, all).find((o) => o.id === id);
         if (!order) throw new Error('Sipariş kartı bulunamadı.');
         if ((order.revision ?? 0) !== revision) throw new Error('Sipariş başka bir işlemde değişti. Sayfayı yenileyip tekrar deneyin.');
+        if (order.deleted) throw new Error('Çöp Kutusundaki sipariş değiştirilemez.');
         if (input.orderType !== order.orderType) throw new Error('Kaydedilmiş sipariş türü değiştirilemez.');
         checkDate(input.date);
         if (input.dueDate) checkDate(input.dueDate);
@@ -132,7 +222,7 @@ export function createWorkflowRepository(storage: () => StoragePort, deps: Depen
         for (const old of order.items) {
           const next = items.find((i) => i.id === old.id);
           const used = orderAllocation(old, all).filter((r) => r.allocated > 0);
-          if (used.length && !next) throw new Error('Üretime aktarılmış sipariş kalemi silinemez.');
+          if ((used.length || all.some((p) => p.orderItemId === old.id)) && !next) throw new Error('Üretime aktarılmış sipariş kalemi silinemez.');
           for (const row of used) if ((next?.colorQuantities.find((r) => colorKey(r.color) === colorKey(row.color))?.quantity ?? 0) < row.allocated) throw new Error(`Bu renkten ${row.allocated} adet daha önce üretime aktarılmıştır. Sipariş adedi ${row.allocated}'ün altına düşürülemez. (${row.color})`);
         }
         const updated = { ...order, customerId: input.customerId || undefined, date: input.date, dueDate: input.dueDate || undefined, note: input.note.trim(), items, revision: revision + 1, updatedAt: new Date().toISOString() };
@@ -143,20 +233,22 @@ export function createWorkflowRepository(storage: () => StoragePort, deps: Depen
     async updateProduction(id: string, revision: number, input: ProductionUpdate) {
       return mutate(id, revision, async (p) => {
         open(p);
+        if (input.productionName !== undefined) { requireText(input.productionName, 'Üretim Adı', 200); p.productionName = input.productionName.trim(); }
         if ((input.brand ?? '').trim() !== (p.brand ?? '').trim()) throw new Error('Marka değişiyorsa yeni Üretim Kartı oluşturulmalıdır.');
         if (!Object.hasOwn(sizeSeries, input.sizeSeries)) throw new Error('Beden serisi seçin.');
-        if (p.cuttingSheet.completedAt && input.sizeSeries !== p.sizeSeries) throw new Error('Kesim tamamlandıktan sonra beden serisi değiştirilemez. Beden dağılımını mevcut seri içinde düzenleyin.');
+        if (pastalLocked(p) && input.sizeSeries !== p.sizeSeries) throw new Error('Kesim tamamlandıktan veya üretim başladıktan sonra beden serisi değiştirilemez.');
+        if (pastalLocked(p) && input.sizeDistribution && Object.keys({ ...p.sizeDistribution, ...input.sizeDistribution }).some((size) => (p.sizeDistribution?.[size] ?? 0) !== (input.sizeDistribution?.[size] ?? 0))) throw new Error('Kesim sonrası ortak pastal dağılımı kilitlidir.');
         for (const [field, service] of assignments) {
           if ((input[field] ?? '') === (p[field] ?? '')) continue;
           if ((service === 'Kesim' && p.cuttingSheet.completedAt) || p.productionStages.some((s) => s.processType === service || s.legacyLines?.some((l) => l.operation === service))) throw new Error(`${service} işlemi başladıktan sonra firma değiştirilemez.`);
         }
         await validateAssignments(input, p);
         for (const value of [input.fabricProperties ?? '', input.productInstructions, input.note]) if (typeof value !== 'string' || value.length > 2000) throw new Error('Metin alanları en fazla 2000 karakter olabilir.');
-        if (!p.cuttingSheet.completedAt && input.sizeDistribution) validateCommonSizeDistribution(input.sizeSeries, input.sizeDistribution);
+        if (!pastalLocked(p) && input.sizeDistribution) validateCommonSizeDistribution(input.sizeSeries, input.sizeDistribution);
         // Explicit allowlist: order links, reserved colors/amounts and posted stage entries never change here.
         p.sizeSeries = input.sizeSeries;
-        if (!p.cuttingSheet.completedAt && input.plannedSizeDistributions) p.plannedSizeDistributions = structuredClone(input.plannedSizeDistributions);
-        if (!p.cuttingSheet.completedAt && input.sizeDistribution) p.sizeDistribution = structuredClone(input.sizeDistribution);
+        if (!pastalLocked(p) && input.plannedSizeDistributions) p.plannedSizeDistributions = structuredClone(input.plannedSizeDistributions);
+        if (!pastalLocked(p) && input.sizeDistribution) p.sizeDistribution = structuredClone(input.sizeDistribution);
         for (const [field] of assignments) p[field] = input[field] ?? '';
         p.cuttingCompanyId = p.cutterCompanyId;
         p.fabricProperties = input.fabricProperties?.trim() ?? '';
@@ -174,6 +266,7 @@ export function createWorkflowRepository(storage: () => StoragePort, deps: Depen
         const index = data.nextProduction ?? 1; data.nextProduction = index + 1;
         const orderId = input.orderCardId; const order = orderId ? (data.orderCards ?? []).find((o) => o.id === orderId) : undefined;
         if (orderId && !order) throw new Error('Sipariş kartı bulunamadı.');
+        if (order?.archived || order?.deleted) throw new Error('Arşivdeki veya Çöp Kutusundaki siparişe üretim eklenemez.');
         const item = input.orderItemId ? (order?.items ?? []).find((candidate) => candidate.id === input.orderItemId) : undefined;
         if (input.orderItemId && !item) throw new Error('Sipariş kalemi bulunamadı.');
         if (order?.items?.length && !item) throw new Error('Üretim oluşturmak için sipariş kalemini seçin.');
@@ -182,14 +275,14 @@ export function createWorkflowRepository(storage: () => StoragePort, deps: Depen
           if (input.productDefinitionId !== item.productDefinitionId) throw new Error('Sipariş kaleminin ürün bağlantısı değiştirilemez.');
           const ordered = new Map(item.colorQuantities.map((row) => [row.color.trim().toLocaleLowerCase('tr-TR'), row.quantity]));
           const used = new Map<string, number>();
-          for (const existing of await records(data)) if (existing.orderItemId === item.id) for (const row of existing.selectedColorQuantities ?? []) used.set(row.color.trim().toLocaleLowerCase('tr-TR'), (used.get(row.color.trim().toLocaleLowerCase('tr-TR')) ?? 0) + row.quantity);
+          for (const existing of await records(data)) if (existing.orderItemId === item.id && reservesOrderQuantity(existing)) for (const row of existing.selectedColorQuantities ?? []) used.set(row.color.trim().toLocaleLowerCase('tr-TR'), (used.get(row.color.trim().toLocaleLowerCase('tr-TR')) ?? 0) + row.quantity);
           if (!selected.length) throw new Error('Üretime aktarılacak renkleri seçin.');
           for (const row of selected) { const key = row.color.trim().toLocaleLowerCase('tr-TR'); const limit = ordered.get(key); if (limit === undefined) throw new Error('Sipariş kaleminde olmayan renk seçilemez.'); if ((used.get(key) ?? 0) + row.quantity > limit) throw new Error(`${row.color} renk için üretime alınabilecek en fazla miktar ${limit - (used.get(key) ?? 0)} adettir.`); }
         }
         if (input.plannedSizeDistributions) validatePlannedSizes(input.sizeSeries, selected, input.plannedSizeDistributions);
         if (input.sizeDistribution) validateCommonSizeDistribution(input.sizeSeries, input.sizeDistribution);
         const fabricName = item?.fabricName ?? input.fabricName.trim(); const gsm = item?.gsm ?? input.gsm.trim(); const fabricProperties = item?.fabricProperties ?? input.fabricProperties ?? '';
-        const p: ProductionRecord = { ...input, id: uid(), productionNo: `UR-${String(index).padStart(5, '0')}`, productId: uid(), productName: item?.modelName ?? item?.productName ?? definition.name, ...(item ? { modelName: item.modelName ?? item.productName } : {}), brand: input.brand?.trim() || 'Marka belirtilmemiş', ...(orderId ? { orderCardId: orderId } : {}), singleBrand: !!input.brand,
+        const p: ProductionRecord = { ...input, ...(input.productionName !== undefined ? { productionName: input.productionName.trim() } : {}), id: uid(), productionNo: `UR-${String(index).padStart(5, '0')}`, productId: uid(), productName: item?.modelName ?? item?.productName ?? definition.name, ...(item ? { modelName: item.modelName ?? item.productName } : {}), brand: input.brand?.trim() || 'Marka belirtilmemiş', ...(orderId ? { orderCardId: orderId } : {}), singleBrand: !!input.brand,
           ...(input.orderItemId ? { orderItemId: input.orderItemId } : {}), ...(selected.length ? { selectedColorQuantities: structuredClone(selected) } : {}), fabricName: fabric?.name ?? fabricName, gsm, fabricProperties, productInstructions: item?.productDetails ?? input.productInstructions,
           targetQuantity: input.cuttingMode === 'Hedef Adet' ? input.targetQuantity : null,
           status: 'Kesim Bekliyor', cuttingSheet: { brandSections: input.brand && selected.length ? [{ id: uid(), brandName: input.brand.trim(), rows: selected.map((row) => ({ id: uid(), color: row.color, rollCount: null, kg: null, quantity: null })) }] : [], completedAt: '' }, sizeDistributions: [], ...(input.sizeDistribution ? { sizeDistribution: structuredClone(input.sizeDistribution) } : {}), productionStages: [], completion: null, stockTransfer: null, createdAt: now, updatedAt: now, revision: 0 };
@@ -217,7 +310,7 @@ export function createWorkflowRepository(storage: () => StoragePort, deps: Depen
       return mutate(id, revision, (p) => { afterCut(p); validateSizes(p, distributions); p.sizeDistributions = structuredClone(distributions); });
     },
     async saveCommonSizeDistribution(id: string, revision: number, series: ProductionRecord['sizeSeries'], distribution: Record<string, number>) {
-      return mutate(id, revision, (p) => { afterCut(p); if (series !== p.sizeSeries) throw new Error('Kesim sonrası beden serisi değiştirilemez.'); validateCommonSizeDistribution(series, distribution); p.sizeDistribution = structuredClone(distribution); });
+      return mutate(id, revision, (p) => { open(p); if (pastalLocked(p)) throw new Error('Kesim sonrası ortak pastal dağılımı kilitlidir.'); if (series !== p.sizeSeries) throw new Error('Beden serisi değiştirilemez.'); validateCommonSizeDistribution(series, distribution); p.sizeDistribution = structuredClone(distribution); });
     },
     async addStage(id: string, revision: number, input: WorkflowStageInput) {
       await company(input.companyId);
@@ -266,7 +359,10 @@ export function createWorkflowRepository(storage: () => StoragePort, deps: Depen
       return mutate(id, revision, (p) => {
         afterCut(p);
         if (p.productionStages.some((s) => s.status !== 'Tamamlandı')) throw new Error('Önce bütün üretim aşamalarını tamamlayıp onaylayın.');
-        if (!p.legacy || p.sizeDistributions.length) validateSizes(p, p.sizeDistributions);
+        if (p.sizeDistributions.length) validateSizes(p, p.sizeDistributions);
+        else if (p.sizeDistribution) validateCommonSizeDistribution(p.sizeSeries, p.sizeDistribution);
+        // A common cutting ratio is an instruction, not a measured size count.
+        // Without measured per-size results, completion keeps exact color totals.
         if (date < p.date || p.productionStages.some((s) => date < s.returnDate)) throw new Error('Tamamlama tarihi üretim / son dönüş tarihinden önce olamaz.');
         const targets = completionTargets(p); const keys = new Set<string>();
         if (lines.length !== targets.length) throw new Error('Her marka / renk / beden için sonuç girin.');
@@ -286,6 +382,7 @@ export function createWorkflowRepository(storage: () => StoragePort, deps: Depen
       // Stok yazılır ama üretim yazımı başarısız olursa sonraki okumada makbuzdan toparlanır.
       return store.transact(async (data) => {
         const p = (await records(data)).find((p) => p.id === id); if (!p) throw new Error('Üretim bulunamadı.');
+        if (p.archived || p.deleted) throw new Error('Arşivdeki veya Çöp Kutusundaki üretim stoğa aktarılamaz.');
         if (p.stockTransfer) {
           data.productions = [...(data.productions ?? []).filter((r) => r.id !== id), p];
           return p.stockTransfer;

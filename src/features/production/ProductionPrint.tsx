@@ -1,5 +1,5 @@
 import type { ProductionOrderCard, ProductionRecord } from '../../domain/productionWorkflow';
-import { cuttingTotal, stageRemainingQuantity } from '../../domain/productionWorkflow';
+import { productionDisplayName, cuttingTotal, stageRemainingQuantity } from '../../domain/productionWorkflow';
 import { CommonSizes } from './CommonSizes';
 
 export function ProductionPrint({ production: p, order, kind, companyName }: { production: ProductionRecord; order?: ProductionOrderCard; kind: 'cutting' | 'tracking'; companyName: (id: string) => string }) {
@@ -11,7 +11,7 @@ export function ProductionPrint({ production: p, order, kind, companyName }: { p
     <header><strong>ARGENT TEKSTİL</strong><h1>{title}</h1></header>
     <h2>Üst Bilgiler</h2>
     <dl className="production-paper-info">{[
-      ['Üretim No', p.productionNo], ['Sipariş No', order?.orderNo ?? '—'],
+      ['Üretim No', p.productionNo], ['Üretim Adı', productionDisplayName(p)], ['Sipariş No', order?.orderNo ?? '—'],
       ['Müşteri', order?.customerId ? companyName(order.customerId) : '—'], ['Tarih', p.date],
       ['Marka', p.brand ?? p.cuttingSheet.brandSections.map((b) => b.brandName).join(' / ')],
       ['Ürün Tanımı', item?.productName ?? p.productName], ['Ürün / Model', p.modelName ?? p.productName],

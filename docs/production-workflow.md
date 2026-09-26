@@ -1,19 +1,31 @@
 # Üretim kaydı ve uyumluluk
 
-Üretim menüsü: Sipariş Kartları, Üretim Takibi, Tamamlanan Üretimler, Arşivlenen Siparişler. Ana menü grupları ilk açılışta kapalıdır.
+Üretim menüsü: Sipariş Kartları, Üretim Takibi, Tamamlanan Üretimler, Çöp Kutusu, Arşivlenen Siparişler. Ana menü grupları ilk açılışta kapalıdır.
 
 ## Sipariş ve kesime hazırlık
 
 Sipariş Kartı → Sipariş Kalemi → Üretim Kartı bağlantısı korunur. Bir kalem farklı markalara ve miktarlara bölünebilir; renk/adet rezervasyon kontrolleri değişmemiştir.
 
-- `archived` ve `archivedAt` siparişin üzerinde tutulur. Arşive At / Arşivden Çıkar işlemleri revizyon kontrolüyle çalışır; üretim kayıtlarını ve bağlantılarını değiştirmez. Kalıcı silme yoktur.
+- `archived` ve `archivedAt` sipariş ve üretim kartlarında tutulur. Arşive At / Arşivden Çıkar önce onay sorar; şifre istemez. Bağlı üretimler aynı transaction içinde arşivlenir. `archivedByOrderId` hangi kartların siparişle birlikte geri alınacağını belirler. Eski arşivli siparişlerin üretimleri okumada arşiv durumunu miras alır.
 - İsteğe bağlı `dueDate` termin tarihidir. Sipariş listesi, sipariş detayı ve ilgili üretim takibinde aynı sipariş kaynağından gösterilir. Termin değişince üretimlere kopyalama gerekmez.
 - Liste `createdAt` azalan sıralıdır; eski eksik/geçersiz zaman damgasında sipariş tarihi, eşitlikte sipariş numarası kullanılır. Güncelleme ve arşivden çıkarma oluşturulma zamanını değiştirmez.
 - Yeni alanların bulunmadığı kayıtlar aktif ve terminsiz kabul edilir. Salt okuma veya sıralama depolamaya yazmaz; toplu migration/reset yoktur. Eski türetilmiş sipariş arşivlendiğinde mevcut deterministik kimliğiyle saklanır.
 - Firma / Kişiler → Müşteriler, aynı contact repository üzerinde Hazır Giyim Müşterisi rolünü filtreler. Pasif ve çok rollü müşteriler de yönetilebilir. Sipariş seçicisi aynı kayıtların aktif olanlarını kullanır.
-- `sizeDistribution` ortak pastal mantığı korunur. Oluşturma/düzenlemede yatay beden başlıkları ve hemen altında küçük girişler, detayda tek satır değerler gösterilir. Dar ekranda bu bölüm kendi içinde kayar.
+- `sizeDistribution` ortak pastal mantığı korunur. Yeni kartta ve seri değişince bütün bedenler 1 başlar. Mevcut kartın kayıtlı değerleri üzerine yazılmaz. Oluşturma/düzenlemede yatay beden başlıkları ve hemen altında küçük girişler, detayda tek satır değerler gösterilir. Kesim sonucu veya sonraki hareketler varsa ortak pastal ve beden serisi arayüzde ve repository içinde kilitlidir.
 - Kesime Föy Hazırla, üretim kartındaki ayrılmış renk/adetlerden salt okunur A4 çalışma kağıdı oluşturur. Sipariş/müşteri, marka, ürün, kumaş, talimatlar ve ortak pastal bir kez gösterilir. Top Sayısı / Kg / Çıkan Adet hücreleri geçmiş sonuç bulunsa dahi boş basılır. Eski kayıtta istenen adet yoksa gerçek kesim adedi yerine belirtilmemiş yazılır.
 - Yeni kesim satırlarının top/kg/adet alanları `null` başlar. Kesim Sonucu Gir ayrı bir işlemdir; sonuç kaydında gerekli alanlar doğrulanır. Föy açmak kayıt oluşturmaz veya üretim revizyonunu değiştirmez.
+- Kesim sonucunda marka/renk ekleme ve kaldırma yoktur; yalnız mevcut renklerin sonuçları girilir. Ortak pastal tekrar sorulmaz. Sonraki aşamalar doğrudan eklenebilir. Ortak pastal bir oran/talimattır; ölçülmüş beden adetleri yoksa tamamlama gerçek renk toplamlarıyla çalışır, varsayımsal beden adetleri üretmez. Önceden kaydedilmiş gerçek beden sonuçları korunur.
+- `productionName` kullanıcı tanımlı Üretim Adıdır. Üst bilgilerde, listede ve föyde gösterilir; düzenlenebilir. Ürün tanımı, model ve sipariş kalemi ilişkileri ayrı kalır. Eski kartların adı yoksa açıkça belirtilir.
+
+## Çöp Kutusu ve silme şifresi
+
+Silme işlemi fiziksel silme değildir: `deleted` / `deletedAt` ile Çöp Kutusuna taşır. Sipariş silinince bağlı üretimler aynı üretim belgesi transaction'ında işaretlenir. Önceden bağımsız silinen kartlar grup geri yüklemesiyle geri gelmez (`deletedByOrderId`). Geri yükleme önceki arşiv durumunu korur. Normal listeler hem arşiv hem çöp kayıtlarını dışlar; detaylar salt okunur açılabilir.
+
+Kullanıcı ilk kullanımda 6–128 karakterli bir silme şifresi/PIN belirler. `argent-tekstil.deletion-pin.v1` içinde rastgele 16 bayt salt ve PBKDF2-SHA-256 (310.000 iterasyon, 256 bit) türevi saklanır; düz metin saklanmaz. PIN kurulumu tek başına silme yapmaz. Repository her silme işleminde yeniden doğrular. Bu yerel yanlışlık önleme katmanıdır; statik GitHub Pages üzerinde sunucu yetkilendirmesi değildir. Bu turda şifre sıfırlama veya kalıcı silme işlemi yoktur.
+
+Kesime başlamamış silinen kartın tahsisi serbest kalır. Kesilmiş/aşama görmüş/tamamlanmış kartın tüketilmiş miktarı ve mali/stok geçmişi korunur; Çöp Kutusuna taşıma stok veya cari ters kaydı üretmez. Geri yüklemede sipariş kalemi, ürün bağlantısı, renkler ve toplam tahsis aynı kilit altında denetlenir. Başka karta ayrılan miktar veya küçültülen sipariş nedeniyle limit aşılıyorsa hiçbir kayıt değiştirilmeden geri yükleme reddedilir.
+
+Eski planlardan türetilen sanal kartlarda yaşam döngüsü bilgisi `productionLifecycle` altında deterministik kart kimliğiyle tutulur; eski plan/iş/aşama dizileri değiştirilmez veya çoğaltılmaz. Normal kayıtlar aynı kimlikle güncellenir. Bütün arşiv/sil/geri alma işlemleri revizyon kontrolüyle çalışır.
 
 ## Kalıcı veri
 
