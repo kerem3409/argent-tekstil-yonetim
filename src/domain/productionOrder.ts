@@ -1,4 +1,6 @@
 import { checkDate, quantity, requireText } from './common.ts';
+import { validateCostPrices } from './productionCosts.ts';
+import type { CostPrices } from './productionCosts';
 import { itemStatus, validateNotes, validatePlanInput, validatePlanRecords } from './productionPlan.ts';
 import type { PlanItem, ProductionPlan } from './productionPlan';
 
@@ -16,6 +18,7 @@ export interface ProductionOrder {
   sourceDraftId?: string;
   productionStartedAt?: string;
   stagePlans?: StagePlan[];
+  costPricesMinor?: CostPrices;
   resultHistory?: { type: import('./productionPlan').PlanStage; changedAt: string; previous: import('./productionPlan').PlanStageRecord['result'] }[];
 }
 export type OrderProductInput = Omit<OrderProduct, 'id' | 'productName' | 'brand' | 'stages' | 'stockTransfer' | 'legacy'>;
@@ -41,7 +44,7 @@ export function validateOrderProduct(product: OrderProduct) {
   const keys = new Set<string>();
   for (const row of product.embroidery.colorNotes) {
     const key = row.color.trim().toLocaleLowerCase('tr-TR');
-    if (keys.has(key) || !product.colors.some((r) => r.color.trim().toLocaleLowerCase('tr-TR') === key) || row.note.length > 2000) throw new Error('Nakış renk notu geçersiz.'); keys.add(key);
+    if (!key || keys.has(key) || row.note.length > 2000) throw new Error('Nakış renk notu geçersiz.'); keys.add(key);
   }
 }
 export function validateProductionOrders(orders: ProductionOrder[] | undefined) {
@@ -49,6 +52,7 @@ export function validateProductionOrders(orders: ProductionOrder[] | undefined) 
   if (!Array.isArray(orders)) throw new Error('Sipariş deposu geçersiz.');
   const ids = new Set<string>(), numbers = new Set<string>();
   for (const o of orders) {
+    if (o.costPricesMinor !== undefined) validateCostPrices(o.costPricesMinor);
     if (o.stagePlans) { if (!Array.isArray(o.stagePlans) || new Set(o.stagePlans.map((p) => p.type)).size !== o.stagePlans.length) throw new Error('Aşama planları geçersiz.'); for (const p of o.stagePlans) { requireText(p.companyId, 'Firma'); checkDate(p.plannedStart); checkDate(p.dueDate); if (!o.product.enabledStages.includes(p.type) || p.dueDate < p.plannedStart) throw new Error('Aşama planı geçersiz.'); } }
     if (!o.id || ids.has(o.id) || !o.orderNo || numbers.has(o.orderNo) || o.workflowVersion !== 4 || !o.product || 'items' in o || !Number.isSafeInteger(o.revision) || o.revision < 0) throw new Error('Sipariş tek bir ürün içermelidir.');
     ids.add(o.id); numbers.add(o.orderNo);

@@ -9,5 +9,6 @@ export interface ProductRepository {
   create(input: StockInput): Promise<StockRecord>;
   adjust(id: string, input: AdjustmentInput): Promise<void>;
   returnStock(id: string, input: ReturnInput): Promise<void>;
+  receiveReturn(id: string, input: { quantity: number; saleId: string; date: string; description: string }): Promise<void>;
   setStatus(id: string, status: StockRecord['status']): Promise<void>;
 }

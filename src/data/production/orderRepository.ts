@@ -15,6 +15,8 @@ import type { ProductRepository } from '../products/repository';
 import type { StageInput } from './planRepository';
 import type { StagePlan } from '../../domain/productionOrder';
 import { operationDate, resultChanged, stagePlan } from '../../domain/productionPlanning.ts';
+import { productionCosts, validateCostPrices } from '../../domain/productionCosts.ts';
+import type { CostPrices } from '../../domain/productionCosts';
 
 interface Dependencies { contacts: Pick<ContactRepository, 'get'>; definitions: Pick<ProductDefinitionRepository, 'requireActive'>; products: Pick<ProductRepository, 'load' | 'receiveProduction'> }
 export function createOrderRepository(storage: () => StoragePort, deps: Dependencies, lock?: StoreLock) {
@@ -49,6 +51,10 @@ export function createOrderRepository(storage: () => StoragePort, deps: Dependen
     if (!b) throw new Error('Kayıtlı bir marka seçin.');
     const def = old?.productDefinitionId === input.product.productDefinitionId ? { name: old.productName } : await deps.definitions.requireActive(input.product.productDefinitionId);
     const p: OrderProduct = { ...structuredClone(input.product), id: old?.id ?? uid(), productName: def.name, brand: b.name, stages: [], ...(old?.legacy ? { legacy: old.legacy } : {}) };
+    if (old) {
+      p.embroidery.colorNotes = structuredClone(old.embroidery.colorNotes);
+      if (old.printing && p.printing) p.printing.colorNotes = structuredClone(old.printing.colorNotes);
+    }
     validatePlanInput({ ...input, items: [p] }); validateOrderProduct(p);
     if (input.customerNote.length > 2000) throw new Error('Müşteri notu çok uzun.'); return p;
   }
@@ -57,6 +63,10 @@ export function createOrderRepository(storage: () => StoragePort, deps: Dependen
     async load() { return all(await store.load()); },
     async list() { return (await all(await store.load())).orders; },
     async listBrands() { return brands(await store.load()); },
+    async saveCosts(id: string, revision: number, prices: CostPrices) {
+      validateCostPrices(prices);
+      return store.transact(async (data) => { const o = await find(data, id, revision); productionCosts(o, prices); o.costPricesMinor = { ...prices }; return save(data, o); });
+    },
     async savePlanning(id: string, revision: number, plans: StagePlan[]) {
       for (const p of plans) { await company(p.type, p.companyId); checkDate(p.plannedStart); checkDate(p.dueDate); if (p.dueDate < p.plannedStart) throw new Error('Aşama termini başlangıçtan önce olamaz.'); }
       return store.transact(async (data) => { const o = await find(data, id, revision); editable(o);

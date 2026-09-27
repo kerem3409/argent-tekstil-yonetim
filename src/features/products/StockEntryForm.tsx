@@ -1,80 +1,53 @@
 import { useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import type { Contact } from '../contacts/model';
-import { entryQuantity, entryTypes, money, newStockInput, number, procurement, validateStock } from './model';
+import { entryQuantity, money, newStockInput, validateStock } from './model';
 import type { StockInput, StockRecord } from './model';
 import { Field, SupplierSelect } from './Fields';
 import { ProductDefinitionSelect } from '../productDefinitions/ProductDefinitionSelect';
+import { PlannedSizes } from '../production/ProductionCardEditor';
+import { defaultSizeDistribution, validateCommonSizeDistribution } from '../../domain/productionWorkflow';
+import type { SizeSeries } from '../../domain/productionWorkflow';
+import { orderRepository } from '../../data/production';
+import { productRepository } from '../../data/products';
+import { useResource } from '../shared/WorkshopUI';
+import { StockOperationForm } from './StockOperationForm';
+import '../production/production.css';
 
-export function StockEntryForm({ records, contacts, nextBatch, onSave, onCancel }: {
-  records: StockRecord[]; contacts: Contact[]; nextBatch: number; onSave: (input: StockInput) => Promise<void>; onCancel: () => void;
+export function StockEntryForm({ records, contacts, onSave, onCancel, onOperationDone }: {
+  records: StockRecord[]; contacts: Contact[]; nextBatch: number; onSave: (input: StockInput) => Promise<void>; onCancel: () => void; onOperationDone: (id: string) => Promise<void>;
 }) {
-  const [value, setValue] = useState<StockInput>(() => ({ ...newStockInput(), colors: [{ color: '', quantity: 1 }] }));
-  const [errors, setErrors] = useState<string[]>([]);
-  const [saving, setSaving] = useState(false);
-  const busy = useRef(false);
-  const errorRef = useRef<HTMLDivElement>(null);
-  function set<K extends keyof StockInput>(key: K, next: StockInput[K]) { setValue((previous) => ({ ...previous, [key]: next })); }
-  const batches = records.filter((item, index) => records.findIndex((record) => record.batch === item.batch) === index);
-  const quantity = entryQuantity(value);
-  const total = quantity * Math.round(value.unitCost * 100);
-  async function submit(event: FormEvent) {
-    event.preventDefault(); if (busy.current) return;
-    const validation = validateStock(value); if (!value.productDefinitionId) validation.push('Aktif bir ürün seçin.'); setErrors(validation);
-    if (validation.length) { requestAnimationFrame(() => errorRef.current?.focus()); return; }
-    busy.current = true; setSaving(true);
-    try { await onSave(value); }
-    catch (error) { setErrors([error instanceof Error ? error.message : 'Stok kaydedilemedi.']); requestAnimationFrame(() => errorRef.current?.focus()); }
-    finally { busy.current = false; setSaving(false); }
+  const [value, setValue] = useState<StockInput>(() => ({ ...newStockInput(), colors: [{ color: '', quantity: 1 }], postAccount: true }));
+  const [series, setSeries] = useState<SizeSeries>('Yetişkin'), [sizes, setSizes] = useState(defaultSizeDistribution('Yetişkin'));
+  const [errors, setErrors] = useState<string[]>([]), [saving, setSaving] = useState(false), [stockId, setStockId] = useState('');
+  const [returnQty, setReturnQty] = useState(1), [saleId, setSaleId] = useState('');
+  const brands = useResource(orderRepository.listBrands), stockData = useResource(productRepository.load), busy = useRef(false);
+  const set = <K extends keyof StockInput>(key: K, next: StockInput[K]) => setValue((p) => ({ ...p, [key]: next }));
+  const quantity = entryQuantity(value), total = Math.round(quantity * value.unitCost * 100), selected = records.find((r) => r.id === stockId);
+  const purchase = value.entryType === 'Hazır Ürün Alımı', operation = value.entryType === 'İade' || value.entryType === 'Sayım / Stok Düzeltme';
+  const types = <Field label="Giriş Türü *"><select value={value.entryType} onChange={(e) => { set('entryType', e.target.value as StockInput['entryType']); setErrors([]); }}>{['Hazır Ürün Alımı', 'İade', 'Sayım / Stok Düzeltme', 'Diğer'].map((type) => <option key={type} value={type}>{type === 'Sayım / Stok Düzeltme' ? 'Sayım Düzeltmesi' : type}</option>)}</select></Field>;
+  async function submit(e: FormEvent) {
+    e.preventDefault(); if (busy.current) return;
+    const input = { ...value, existingBatch: '', series, assortment: Object.entries(sizes).map(([s, n]) => `${s}${n}`).join(' '), packSize: Object.values(sizes).reduce((n, v) => n + v, 0), postAccount: purchase, accountAction: 'Borç oluştur' as const };
+    const validation = validateStock(input);
+    if (!input.productDefinitionId) validation.push('Ürün seçin.');
+    if (!brands.data?.some((b) => b.name === input.brand)) validation.push('Kayıtlı marka seçin.');
+    try { validateCommonSizeDistribution(series, sizes); } catch (e) { validation.push((e as Error).message); }
+    if (validation.length) { setErrors(validation); return; }
+    busy.current = true; setSaving(true); setErrors([]);
+    try { await onSave(input); } catch (e) { setErrors([(e as Error).message]); } finally { busy.current = false; setSaving(false); }
   }
-  function text(key: 'brand' | 'detail' | 'fabric' | 'grammage' | 'series' | 'assortment' | 'note', label: string, required = false) {
-    const props = { value: value[key], required, maxLength: ['detail', 'note'].includes(key) ? 2000 : 300,
-      onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => set(key, event.target.value) };
-    return <Field label={label}>{key === 'detail' || key === 'note' ? <textarea {...props} rows={3} /> : <input {...props} readOnly={!!value.existingBatch && key === 'brand'} />}</Field>;
-  }
-  return <form onSubmit={submit} className="product-form">
-    <p className="product-hint">* zorunlu alanlar. Tutarlar TL cinsindedir.</p>
-    {!!errors.length && <div ref={errorRef} tabIndex={-1} role="alert" className="product-alert"><ul>{errors.map((error) => <li key={error}>{error}</li>)}</ul></div>}
-    <fieldset disabled={saving} className="product-card"><legend>Giriş Türü</legend>
-      <Field label="Giriş Türü *"><select value={value.entryType} onChange={(event) => set('entryType', event.target.value as StockInput['entryType'])}>{entryTypes.map((type) => <option key={type}>{type}</option>)}</select></Field>
-      {value.entryType === 'İade' && <p className="product-hint">Bu giriş, geri gelen ürünleri stoğa ekler. Tedarikçiye iade için listede ilgili kaydın İade işlemini kullanın.</p>}
-      {value.entryType === 'Sayım / Stok Düzeltme' && <p className="product-hint">Burada yeni bir stok satırı açılır. Mevcut kaydın adedini değiştirmek için listedeki Stok Düzelt işlemini kullanın.</p>}
-    </fieldset>
-    <fieldset disabled={saving} className="product-card"><legend>Ürün Bilgileri</legend>
-      <Field label="Parti seçimi"><select value={value.existingBatch} onChange={(event) => {
-        const batch = records.find((item) => item.batch === event.target.value);
-        setValue((previous) => ({ ...previous, existingBatch: event.target.value, ...(batch ? { productDefinitionId: batch.productDefinitionId, name: batch.name, brand: batch.brand, detail: batch.detail, fabric: batch.fabric, grammage: batch.grammage } : { productDefinitionId: '', name: '' }) }));
-      }}><option value="">Yeni parti oluştur</option>{batches.map((item) => <option key={item.batch} value={item.batch}>{item.batch} · {item.name} {item.brand && `· ${item.brand}`}</option>)}</select></Field>
-      <p className="product-hint">Aynı ürün için farklı renk veya seri/asorti girerken mevcut partiyi seçebilirsiniz.</p>
-      <div className="product-grid"><ProductDefinitionSelect value={value.productDefinitionId ?? ''} disabled={!!value.existingBatch && !!records.find((r) => r.batch === value.existingBatch)?.productDefinitionId} quickAdd onChange={(productDefinitionId, name) => setValue((previous) => ({ ...previous, productDefinitionId, name }))} />{text('brand', 'Marka')}{text('detail', 'Ürün Detayı')}{text('fabric', 'Kumaş')}{text('grammage', 'Gramaj (g/m²)')}</div>
-    </fieldset>
-    <fieldset disabled={saving} className="product-card"><legend>Parti Bilgileri</legend>
-      <section className="product-colors" aria-labelledby="color-distribution-heading"><h2 id="color-distribution-heading">Renk Dağılımı</h2>
-        {(value.colors ?? []).map((row, index) => <div className="product-color-row" key={index}>
-          <Field label={`Renk ${index + 1} *`}><input required maxLength={100} value={row.color} onChange={(event) => setValue((previous) => ({ ...previous, colors: previous.colors!.map((item, i) => i === index ? { ...item, color: event.target.value } : item) }))} /></Field>
-          <Field label={`Adet ${index + 1} *`}><input type="number" required min="1" max="1000000000" step="1" value={Number.isNaN(row.quantity) ? '' : row.quantity} onChange={(event) => { const quantity = event.target.valueAsNumber; setValue((previous) => ({ ...previous, colors: previous.colors!.map((item, i) => i === index ? { ...item, quantity } : item) })); }} /></Field>
-          <button type="button" className="button product-secondary" disabled={value.colors!.length === 1} aria-label={`${index + 1}. renk satırını sil`} onClick={() => setValue((previous) => ({ ...previous, colors: previous.colors!.filter((_, i) => i !== index) }))}>Satırı Sil</button>
-        </div>)}
-        <button type="button" className="button product-secondary" onClick={() => setValue((previous) => ({ ...previous, colors: [...previous.colors!, { color: '', quantity: 1 }] }))}>+ Renk Ekle</button>
-      </section><div className="product-grid">
-      <Field label="Parti No"><input value={value.existingBatch || `P-${String(nextBatch).padStart(4, '0')}`} readOnly /><small>Yeni parti numarası kayıt sırasında kesinleşir.</small></Field>
-      {text('series', "Seri (ör. 5’li)")}{text('assortment', 'Asorti (ör. S1 / M1 / L2 / XL1)')}
-      <Field label="Paket İçeriği (adet) *"><input type="number" min="1" max="1000000000" step="1" required value={Number.isNaN(value.packSize) ? '' : value.packSize} onChange={(event) => set('packSize', event.target.valueAsNumber)} /></Field>
-      <Field label="Toplam Adet"><input readOnly value={Number.isFinite(quantity) ? number(quantity) : '—'} /><small>Renk adetlerinin toplamından otomatik hesaplanır.</small></Field>
-      <Field label="Birim Maliyet (TL / adet) *"><input type="number" min="0" step="0.01" required value={Number.isNaN(value.unitCost) ? '' : value.unitCost} onChange={(event) => set('unitCost', event.target.valueAsNumber)} /></Field>
-      <Field label="Giriş Tarihi *"><input type="date" required value={value.date} onChange={(event) => set('date', event.target.value)} /></Field>
-      {text('note', 'Not')}
-    </div><p className="product-hint">Her renk aynı parti altında ayrı stok satırı olarak kaydedilir. Seri ve asorti açıklama alanlarıdır. Paket içeriği, renk bazında paket satışlarında kullanılır; paket dışındaki adetler de stokta korunur.</p></fieldset>
-    <fieldset disabled={saving} className="product-card"><legend>Tedarik ve Cari Hesap</legend><div className="product-grid">
-      <SupplierSelect contacts={contacts} value={value.supplierId} required={value.postAccount} onChange={(id) => set('supplierId', id)} />
-      <Field label="Temin Türü"><input readOnly value={procurement[value.entryType]} /></Field>
-      <Field label="Cari hesaba işlensin mi?"><select value={value.postAccount ? 'yes' : 'no'} onChange={(event) => set('postAccount', event.target.value === 'yes')}><option value="no">Hayır</option><option value="yes">Evet</option></select></Field>
-      {value.postAccount && <Field label="Cari İşlem Türü"><select value={value.accountAction} onChange={(event) => set('accountAction', event.target.value as StockInput['accountAction'])}><option>Borç oluştur</option><option>Alacaktan mahsup et</option></select></Field>}
-    </div>
-    {!contacts.some((item) => item.status === 'Aktif') && <p className="product-hint">Seçilebilir firma bulunmuyor. Firma / Kişiler modülünden aktif kayıt oluşturabilirsiniz.</p>}
-    <p className="product-total">Toplam alış tutarı: <strong>{Number.isSafeInteger(total) && total >= 0 ? money(total) : '—'}</strong><span>{Number.isFinite(quantity) ? number(quantity) : '—'} adet × birim maliyet</span></p>
-    {value.postAccount && <p className="product-hint">Bu alış ilgili firmanın cari hesabına otomatik yansır. Alacaktan mahsup, firmanın net alacağını azaltır; alacağı aşan bölüm borç bakiyesine dönüşür.</p>}
-    </fieldset>
-    <div className="product-actions"><button type="button" className="button product-secondary" disabled={saving} onClick={onCancel}>Vazgeç</button><button className="button" disabled={saving}>{saving ? 'Kaydediliyor…' : 'Stok Girişini Kaydet'}</button></div>
-  </form>;
+  if (operation) return <div className="product-form"><div className="product-card">{types}<Field label="Stoktaki Ürün *"><select value={stockId} onChange={(e) => { setStockId(e.target.value); setSaleId(''); }}><option value="">Seçin</option>{records.filter((r) => r.status === 'Aktif').map((r) => <option key={r.id} value={r.id}>{r.name} · {r.brand} · {r.color} · {r.batch} · {r.quantity} adet</option>)}</select></Field></div>
+    {selected && (value.entryType === 'Sayım / Stok Düzeltme' ? <StockOperationForm key={selected.id} record={selected} contacts={contacts} kind="adjust" minDate={stockData.data?.movements.filter((m) => m.stockId === selected.id).at(-1)?.date ?? selected.date} onCancel={onCancel} onAdjust={async (input) => { await productRepository.adjust(selected.id, input); await onOperationDone(selected.id); }} onReturn={async () => {}} /> : <form className="product-card" onSubmit={async (e) => { e.preventDefault(); if (busy.current) return; busy.current = true; setSaving(true); setErrors([]); try { await productRepository.receiveReturn(selected.id, { quantity: returnQty, saleId, date: value.date, description: value.note }); await onOperationDone(selected.id); } catch (e) { setErrors([(e as Error).message]); } finally { busy.current = false; setSaving(false); } }}>
+      <fieldset disabled={saving}><legend>Müşteriden Gelen İade</legend><Field label="İlgili Satış / Müşteri"><select value={saleId} onChange={(e) => setSaleId(e.target.value)}><option value="">Bağlantısız iade</option>{stockData.data?.sales?.filter((s) => s.stockId === selected.id).map((s) => <option key={s.id} value={s.id}>{s.number} · {contacts.find((c) => c.id === s.companyId)?.name ?? 'Açığa Satış'} · {s.quantity} adet</option>)}</select></Field>
+      <Field label="İade Adedi *"><input type="number" min="1" step="1" required value={returnQty} onChange={(e) => setReturnQty(e.target.valueAsNumber)} /></Field><Field label="Tarih *"><input type="date" required value={value.date} onChange={(e) => set('date', e.target.value)} /></Field><Field label="Açıklama *"><textarea required value={value.note} onChange={(e) => set('note', e.target.value)} /></Field><p>İşlem sonrası stok: {selected.quantity + (returnQty || 0)}</p><p className="product-hint">İade stok miktarını artırır. Ödeme/iade tutarı gerekiyorsa mevcut finans hareketinden işlenir.</p>{errors.map((e) => <p key={e} role="alert">{e}</p>)}<button className="button">İadeyi Kaydet</button></fieldset></form>)}
+  </div>;
+  return <form className="product-form" onSubmit={submit}>{errors.map((e) => <p key={e} role="alert" className="product-alert">{e}</p>)}<fieldset disabled={saving}><div className="product-card">{types}</div>
+    <section className="product-card"><h2>Ürün Bilgileri</h2><div className="product-grid"><ProductDefinitionSelect value={value.productDefinitionId ?? ''} quickAdd onChange={(productDefinitionId, name) => setValue((p) => ({ ...p, productDefinitionId, name }))} /><Field label="Marka *"><select required value={value.brand} onChange={(e) => set('brand', e.target.value)}><option value="">Seçin</option>{brands.data?.map((b) => <option key={b.id} value={b.name}>{b.name}</option>)}</select></Field></div>{brands.error && <p role="alert">{brands.error}</p>}
+      <div className="product-fabric-row"><Field label="Kumaş"><input value={value.fabric} onChange={(e) => set('fabric', e.target.value)} /></Field><Field label="Gramaj"><input value={value.grammage} onChange={(e) => set('grammage', e.target.value)} /></Field></div><Field label="Ürün Detayı"><textarea maxLength={2000} value={value.detail} onChange={(e) => set('detail', e.target.value)} /></Field></section>
+    <section className="product-card"><h2>Renk Dağılımları</h2><div className="stock-colors-compact">{value.colors!.map((r, i) => <div className="product-color-row" key={i}><Field label={`Renk ${i + 1} *`}><input required value={r.color} onChange={(e) => set('colors', value.colors!.map((v, n) => i === n ? { ...v, color: e.target.value } : v))} /></Field><Field label={`Adet ${i + 1} *`}><input type="number" required min="1" step="1" value={r.quantity || ''} onChange={(e) => set('colors', value.colors!.map((v, n) => i === n ? { ...v, quantity: e.target.valueAsNumber } : v))} /></Field><button type="button" className="button product-secondary" aria-label={`Renk ${i + 1} sil`} disabled={value.colors!.length === 1} onClick={() => set('colors', value.colors!.filter((_, n) => n !== i))}>−</button></div>)}<button type="button" className="button product-secondary" onClick={() => set('colors', [...value.colors!, { color: '', quantity: 1 }])}>+ Renk Ekle</button></div></section>
+    <section className="product-card"><h2>Seri / Asorti</h2><PlannedSizes series={series} value={sizes} onSeriesChange={setSeries} onChange={setSizes} /></section>
+    <section className="product-card"><Field label="Giriş Tarihi *"><input type="date" required value={value.date} onChange={(e) => set('date', e.target.value)} /></Field><Field label={purchase ? 'Not' : 'Açıklama / Not *'}><textarea required={!purchase} maxLength={2000} value={value.note} onChange={(e) => set('note', e.target.value)} /></Field></section>
+    <section className="product-card"><h2>Tedarikçi / Finans</h2><div className="product-grid">{purchase && <SupplierSelect contacts={contacts} value={value.supplierId} required onChange={(id) => set('supplierId', id)} />}<Field label="Toplam Adet"><input readOnly value={Number.isFinite(quantity) ? quantity : ''} /></Field><Field label="Birim Fiyat *"><input required type="number" min={purchase ? '0.01' : '0'} step="0.01" value={Number.isNaN(value.unitCost) ? '' : value.unitCost} onChange={(e) => set('unitCost', e.target.valueAsNumber)} /></Field><Field label="Toplam Tutar"><input readOnly value={Number.isSafeInteger(total) ? money(total) : '—'} /></Field></div>{purchase && <p className="product-hint">Hazır Ürün Alımı tedarikçinin cari hesabına borç olarak otomatik yansır.</p>}</section>
+    <div className="product-actions"><button type="button" className="button product-secondary" onClick={onCancel}>Vazgeç</button><button className="button">{saving ? 'Kaydediliyor…' : 'Stok Girişini Kaydet'}</button></div></fieldset></form>;
 }

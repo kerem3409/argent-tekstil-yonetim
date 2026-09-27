@@ -32,14 +32,14 @@ export function StockOperationForm({ record, contacts, kind, minDate, onAdjust, 
     {error && <p role="alert" className="product-alert">{error}</p>}
     <fieldset className="product-card" disabled={saving}><legend>{kind === 'adjust' ? 'Sayım / Stok Düzeltme' : 'Tedarikçiye İade'}</legend>
       <p className="product-hint">{record.name} · {record.batch} · {record.color} · {record.series || 'Seri belirtilmedi'}<br />Mevcut stok: {number(record.quantity)} adet</p>
-      <div className="product-grid">
+      <div className="product-grid">{kind === 'adjust' && <Field label="Sistemdeki Mevcut Adet"><input readOnly value={record.quantity} /></Field>}
         {kind === 'adjust' && <Field label="Düzeltme Yöntemi"><select value={mode} onChange={(event) => { setMode(event.target.value as AdjustmentInput['mode']); setAmount(event.target.value === 'total' ? record.quantity : 0); }}><option value="total">Yeni toplam adet</option><option value="difference">Fark miktarı (+ / −)</option></select></Field>}
-        <Field label={kind === 'return' ? 'İade Adedi *' : mode === 'total' ? 'Yeni Adet *' : 'Fark Miktarı *'}><input type="number" step="1" required min={kind === 'return' ? 1 : mode === 'total' ? 0 : -record.quantity} max={kind === 'return' ? record.quantity : 1000000000} value={Number.isNaN(amount) ? '' : amount} onChange={(event) => setAmount(event.target.valueAsNumber)} /></Field>
+        <Field label={kind === 'return' ? 'İade Adedi *' : mode === 'total' ? 'Fiziki Sayım Adedi *' : 'Fark Miktarı *'}><input type="number" step="1" required min={kind === 'return' ? 1 : mode === 'total' ? 0 : -record.quantity} max={kind === 'return' ? record.quantity : 1000000000} value={Number.isNaN(amount) ? '' : amount} onChange={(event) => setAmount(event.target.valueAsNumber)} /></Field>
         <Field label="Tarih *"><input type="date" required min={minDate} value={date} onChange={(event) => setDate(event.target.value)} /></Field>
         <Field label="Açıklama *"><textarea required maxLength={2000} rows={3} value={description} onChange={(event) => setDescription(event.target.value)} /></Field>
         {kind === 'return' && <><Field label="Cari hesaba işlensin mi?"><select value={postAccount ? 'yes' : 'no'} onChange={(event) => setPostAccount(event.target.value === 'yes')}><option value="no">Hayır</option><option value="yes">Evet</option></select></Field>{postAccount && <SupplierSelect contacts={contacts} value={supplierId} required onChange={setSupplierId} />}</>}
       </div>
-      <p className="product-total">İşlem sonrası stok: <strong>{Number.isFinite(next) ? number(next) : '—'} adet</strong></p>
+      <p className="product-hint">{kind === 'adjust' && `Sayım Farkı: ${next - record.quantity > 0 ? '+' : ''}${Number.isFinite(next) ? next - record.quantity : '—'}`}</p><p className="product-total">İşlem sonrası stok: <strong>{Number.isFinite(next) ? number(next) : '—'} adet</strong></p>
       {kind === 'return' && postAccount && <p className="product-hint">İade tutarı: {Number.isFinite(amount) ? money(amount * record.unitCostMinor) : '—'}. Seçilen firmanın net borcunu azaltır; borcu aşan bölüm alacak bakiyesine dönüşür.</p>}
     </fieldset>
     <div className="product-actions"><button type="button" className="button product-secondary" disabled={saving} onClick={onCancel}>Vazgeç</button><button className="button" disabled={saving}>{saving ? 'Kaydediliyor…' : 'İşlemi Kaydet'}</button></div>

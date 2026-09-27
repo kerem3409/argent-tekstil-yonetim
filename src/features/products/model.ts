@@ -30,6 +30,7 @@ export interface StockRecord {
   status: 'Aktif' | 'Pasif'; createdAt: string;
 }
 export interface StockMovement {
+  sourceSaleId?: string;
   id: string; stockId: string; date: string; createdAt: string;
   type: EntryType | 'Satış'; incoming: number; outgoing: number; balance: number; description: string;
 }
@@ -74,6 +75,7 @@ export function purchaseAmount(quantity: number, unitCostMinor: number) {
 export function validateStock(input: StockInput): string[] {
   const errors: string[] = [];
   if (!entryTypes.includes(input.entryType)) errors.push('Giriş türü seçin.');
+  if (input.entryType === 'Diğer' && !input.note.trim()) errors.push('Diğer giriş türü için açıklama zorunludur.');
   if (input.name.trim().length < 2 || input.name.length > 200) errors.push('Ürün adı 2–200 karakter olmalıdır.');
   if (input.colors !== undefined) {
     if (!input.colors.length) errors.push('En az bir renk ekleyin.');

@@ -17,15 +17,15 @@ function StageQuantityTable({ order, type }: { order: ProductionOrder; type: Pla
   const input = stageInput(p, type), result = stageRecord(p, type)?.result;
   const totalInput = input.length ? input.reduce((n, r) => n + r.quantity, 0) : undefined;
   const totalResult = result?.rows.reduce((n, r) => n + r.quantity, 0);
-  const difference = (start: number | undefined, actual: number | undefined) => start === undefined || actual === undefined ? '—' : actual > start ? `+${actual - start}` : start - actual;
+  const difference = (start: number | undefined, actual: number | undefined) => start === undefined || actual === undefined ? '—' : actual > start ? `Fark +${actual - start}` : `${start - actual} Fire`;
   const cuttingTotal = (key: 'rollCount' | 'kg') => result?.rows.some((r) => r[key] !== undefined) ? Number(result.rows.reduce((n, r) => n + (r[key] ?? 0), 0).toFixed(3)) : '—';
   return <div className="sheet-quantity-table"><h2>Renk / Adet Takibi</h2>
-    <Table caption={`${sheetNames[type]} adet takibi`} headers={['Renk', 'Sipariş Adedi', ...(cutting ? [] : [inputLabel[type]]), resultLabel(type), ...(cutting ? ['Top', 'Kg'] : ['Fire'])]}
+    <Table caption={`${sheetNames[type]} adet takibi`} headers={['Renk', 'Sipariş Adedi', ...(cutting ? [] : [inputLabel[type]]), resultLabel(type), 'Fire / Fark', ...(cutting ? ['Top', 'Kg'] : [])]}
       rows={[...p.colors.map((r) => {
         const start = input.find((v) => colorKey(v.color) === colorKey(r.color))?.quantity;
         const actual = result?.rows.find((v) => colorKey(v.color) === colorKey(r.color));
-        return [r.color, r.quantity, ...(cutting ? [] : [start ?? '—']), actual?.quantity ?? '—', ...(cutting ? [actual?.rollCount ?? '—', actual?.kg ?? '—'] : [difference(start, actual?.quantity)])];
-      }), ['TOPLAM', p.colors.reduce((n, r) => n + r.quantity, 0), ...(cutting ? [] : [totalInput ?? '—']), totalResult ?? '—', ...(cutting ? [cuttingTotal('rollCount'), cuttingTotal('kg')] : [difference(totalInput, totalResult)])]]} />
+        return [r.color, r.quantity, ...(cutting ? [] : [start ?? '—']), actual?.quantity ?? '—', difference(cutting ? r.quantity : start, actual?.quantity), ...(cutting ? [actual?.rollCount ?? '—', actual?.kg ?? '—'] : [])];
+      }), ['TOPLAM', p.colors.reduce((n, r) => n + r.quantity, 0), ...(cutting ? [] : [totalInput ?? '—']), totalResult ?? '—', difference(totalInput, totalResult), ...(cutting ? [cuttingTotal('rollCount'), cuttingTotal('kg')] : [])]]} />
   </div>;
 }
 
@@ -41,8 +41,8 @@ export function OrderTechnicalPrint({ order, type, customerName, contacts = [] }
   ].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || '—'}</dd></div>)}</dl>
     {general ? <><h2>Renk / İstenen Adet</h2><Table headers={['Renk', 'Adet']} rows={[...p.colors.map((r) => [r.color, r.quantity]), ['TOPLAM', p.colors.reduce((n, r) => n + r.quantity, 0)]]} /></> : <StageQuantityTable order={order} type={type} />}
     {(general || type === 'Kesim' || type === 'Dikim') && <><h2>Seri / Beden · {p.sizeSeries}</h2><PlanSizes item={p} /><h2>Ürün Özellikleri</h2><p>Düşük Omuz: {p.dropShoulder ? 'Var' : 'Yok'} · Yırtmaç: {p.sideSlit ? 'Var' : 'Yok'}</p><ol>{p.instructions.map((s, i) => <li key={i}>{s}</li>)}</ol></>}
-    {embroidery && <><h2>Nakış Bilgileri</h2><ol>{p.embroidery.notes.map((s, i) => <li key={i}>{s}</li>)}</ol><Table headers={['Renk', 'Nakış Rengi / Talimat']} rows={p.embroidery.colorNotes.map((r) => [r.color, r.note])} /><p>Logo Konumu: {p.embroidery.position || '—'} · Ölçü: {p.embroidery.size || '—'}</p><p>{p.embroidery.technicalNote}</p></>}
-    {(general || type === 'Baskı') && p.enabledStages.includes('Baskı') && <><h2>Baskı Bilgileri</h2><ol>{p.printing?.notes.map((n, i) => <li key={i}>{n}</li>)}</ol><Table headers={['Renk', 'Baskı Rengi / Talimat']} rows={(p.printing?.colorNotes ?? []).map((r) => [r.color, r.note])} /><p>Konum: {p.printing?.position} · Ölçü: {p.printing?.size}</p><p>{p.printing?.technicalNote}</p></>}
+    {embroidery && <><h2>Nakış Bilgileri</h2><ol>{p.embroidery.notes.map((s, i) => <li key={i}>{s}</li>)}</ol><p>Logo Konumu: {p.embroidery.position || '—'} · Ölçü: {p.embroidery.size || '—'}</p><p>{p.embroidery.technicalNote}</p></>}
+    {(general || type === 'Baskı') && p.enabledStages.includes('Baskı') && <><h2>Baskı Bilgileri</h2><ol>{p.printing?.notes.map((n, i) => <li key={i}>{n}</li>)}</ol><p>Konum: {p.printing?.position} · Ölçü: {p.printing?.size}</p><p>{p.printing?.technicalNote}</p></>}
     {packaging && <><h2>Paket / Ambalaj Bilgisi</h2><dl className="production-summary">{[['Paket Tipi', p.packaging.type], ['Bir Pakette Kaç Ürün', String(p.packaging.unitsPerPack ?? '')], ['Beden', p.packaging.sizeMode], ['Etiketleme', p.packaging.labelingNote], ['Ambalaj Notu', p.packaging.note]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || '—'}</dd></div>)}</dl></>}
 
     {stage && <><h2>{type} Teknik Notları</h2><ol>{stage.notes.map((s, i) => <li key={i}>{s}</li>)}</ol></>}

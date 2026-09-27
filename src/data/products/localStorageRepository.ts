@@ -189,5 +189,19 @@ export function createProductRepository(getStorage: () => StoragePort, contacts:
         const data = read(); stock(data, id).status = status; write(data);
       });
     },
+    async receiveReturn(id, input) {
+      return lock(async () => {
+        const data = read(), record = stock(data, id);
+        if (record.status !== 'Aktif' || !validCount(input.quantity) || input.quantity < 1 || !input.description.trim()) throw new Error('Aktif stok, pozitif iade adedi ve açıklama gerekir.');
+        if (input.saleId) {
+          const sale = data.sales?.find((s) => s.id === input.saleId && s.stockId === id);
+          const returned = data.movements.filter((m) => m.sourceSaleId === input.saleId).reduce((n, m) => n + m.incoming, 0);
+          if (!sale || returned + input.quantity > sale.quantity) throw new Error('İade adedi bu satışın kalan iade miktarını aşıyor.');
+        }
+        const m = movement(data, record, input.quantity, input.date, 'İade', input.description);
+        if (input.saleId) m.sourceSaleId = input.saleId;
+        write(data);
+      });
+    },
   };
 }

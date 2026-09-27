@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "test:business": "node --experimental-strip-types --test scripts/check-business.ts",
     "test:reports": "node --experimental-strip-types --test scripts/check-reports.ts",
     "test:finance": "node --experimental-strip-types --test scripts/check-finance.ts",
     "test:sales": "node --experimental-strip-types --test scripts/check-sales.ts",
@@ -13,7 +14,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",
-    "check": "node --experimental-strip-types scripts/check-navigation.ts && npm run test:contacts && npm run test:products && npm run test:inventory && npm run test:production && npm run test:sales && npm run test:finance && npm run test:reports && npm run test:workflow",
+    "check": "node --experimental-strip-types scripts/check-navigation.ts && npm run test:contacts && npm run test:products && npm run test:inventory && npm run test:production && npm run test:sales && npm run test:finance && npm run test:reports && npm run test:workflow && npm run test:business",
     "test:workflow": "node --experimental-strip-types --test scripts/check-workflow.ts",
     "test:products": "node --experimental-strip-types --test scripts/check-products.ts scripts/check-product-definitions.ts",
     "test:contacts": "node --experimental-strip-types --test scripts/check-contacts.ts",

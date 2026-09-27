@@ -21,6 +21,7 @@ export interface ContactInput {
 }
 
 export interface Contact extends ContactInput {
+  networkSourceIds?: string[];
   id: string;
   createdAt: string;
   updatedAt: string;

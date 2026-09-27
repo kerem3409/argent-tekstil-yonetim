@@ -29,6 +29,7 @@ export const navigation: NavigationGroup[] = [
   { title: 'Firma / Kişiler', symbol: 'people', pages: [
     { id: 'customers', title: 'Müşteriler', path: '/firma-kisiler/musteriler', description: 'Hazır Giyim Müşterisi kayıtlarını yönetin.', columns: ['Firma / Kişi Adı', 'Yetkili', 'Telefon', 'Durum'] },
     { id: 'contacts', title: 'Firma / Kişi Listesi', path: '/firma-kisiler', description: 'Birlikte çalıştığınız firma ve kişilerin kayıtlarını görüntüleyin.', columns: ['Kod', 'Firma / Kişi', 'Tür', 'Telefon'] },
+    { id: 'business-network', title: 'İş Ağı', path: '/firma-kisiler/is-agi', description: 'Gelecekte birlikte çalışabileceğiniz bağlantılar.', columns: ['Ad Soyad', 'Firma', 'Kategori', 'Durum'] },
   ] },
   { title: 'Finans', symbol: 'finance', pages: [
     { id: 'accounts', title: 'Cari Hesaplar', path: '/finans/cari-hesaplar', description: 'Firma ve kişilere ait cari hesap kayıtlarını görüntüleyin.', columns: ['Cari Kodu', 'Firma / Kişi', 'Hesap Türü', 'Para Birimi'] },

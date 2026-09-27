@@ -68,7 +68,7 @@ test('Tüm giriş türleri renk dağılımını destekler; mevcut parti ve eski 
   const { repository } = setup();
   const old = await repository.create(input());
   for (const entryType of entryTypes) {
-    const record = await repository.create(input({ entryType, colors: [{ color: 'Kırmızı', quantity: 7 }, { color: 'Yeşil', quantity: 8 }] }));
+    const record = await repository.create(input({ entryType, note: 'Giriş açıklaması', colors: [{ color: 'Kırmızı', quantity: 7 }, { color: 'Yeşil', quantity: 8 }] }));
     const data = await repository.load();
     assert.equal(data.records.filter((r) => r.batch === record.batch).length, 2);
     assert.equal(data.movements.find((m) => m.stockId === record.id)?.type, entryType);
@@ -192,7 +192,7 @@ test('Bozuk verinin veya bozuk hareket bakiyesinin üzerine yazılmaz', async ()
 
 test('Beş giriş türü pozitif hareket üretir; liste filtreleri birlikte çalışır', async () => {
   const { repository } = setup();
-  for (const entryType of entryTypes) await repository.create(input({ entryType }));
+  for (const entryType of entryTypes) await repository.create(input({ entryType, note: 'Giriş açıklaması' }));
   const data = await repository.load(); assert.equal(data.movements.length, 5); assert.ok(data.movements.every((item) => item.incoming === 100));
   assert.equal(filterStock(data.records, { search: 'TİŞÖRT', brand: 'Argent', batch: 'P-0001', color: 'Beyaz', status: 'Aktif' }).length, 1);
   assert.equal(filterStock(data.records, { search: '', brand: '', batch: '', color: '', status: 'Pasif' }).length, 0);

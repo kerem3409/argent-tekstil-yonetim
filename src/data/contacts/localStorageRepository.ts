@@ -49,12 +49,21 @@ export function createLocalStorageContactRepository(getStorage: () => ContactSto
   return {
     async list() { return read(); },
     async get(id) { return read().find((contact) => contact.id === id) ?? null; },
-    async create(input) { return lock(CONTACTS_STORAGE_KEY, async () => {
+    async deactivate(id) { return lock(CONTACTS_STORAGE_KEY, async () => {
+      const records = read(), record = records.find((c) => c.id === id);
+      if (!record) throw new Error('Kayıt bulunamadı.');
+      record.status = 'Pasif'; record.updatedAt = new Date().toISOString(); write(records); return record;
+    }); },
+    async create(input, networkSourceId) { return lock(CONTACTS_STORAGE_KEY, async () => {
       const normalized = prepare(input);
       const records = read();
+      if (networkSourceId) {
+        const existing = records.find((c) => c.networkSourceIds?.includes(networkSourceId) || normalizedContactName(c.name) === normalizedContactName(normalized.name));
+        if (existing) { existing.networkSourceIds = [...new Set([...(existing.networkSourceIds ?? []), networkSourceId])]; write(records); return existing; }
+      }
       if (normalized.roles.includes('Hazır Giyim Müşterisi') && records.some((c) => c.roles.includes('Hazır Giyim Müşterisi') && normalizedContactName(c.name) === normalizedContactName(normalized.name))) throw new Error('Bu isimde bir müşteri zaten kayıtlı. Mevcut müşteriyi seçebilirsiniz.');
       const now = new Date().toISOString();
-      const contact: Contact = { ...normalized, id: crypto.randomUUID(), createdAt: now, updatedAt: now };
+      const contact: Contact = { ...normalized, ...(networkSourceId ? { networkSourceIds: [networkSourceId] } : {}), id: crypto.randomUUID(), createdAt: now, updatedAt: now };
       write([...records, contact]);
       return contact;
     }); },

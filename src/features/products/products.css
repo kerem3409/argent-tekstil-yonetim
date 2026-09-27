@@ -43,3 +43,7 @@
 .product-ledger { margin-top: 24px; }
 @media (max-width: 1150px) { .product-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 600px) { .product-grid, .product-detail-grid, .product-filters { grid-template-columns: 1fr; } .product-card { padding: 18px; } }
+.stock-colors-compact { width: 60%; min-width: 400px; }
+.product-fabric-row { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; max-width: 600px; margin: 16px 0; }
+.product-form > fieldset { border: 0; padding: 0; min-width: 0; }
+@media(max-width:700px) { .stock-colors-compact { width: 100%; min-width: 0; } }

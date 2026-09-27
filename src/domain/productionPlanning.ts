@@ -1,4 +1,4 @@
-import { activeStages, colorKey, currentCompany, currentStage, itemStatus, stageInput, stageRecord } from './productionPlan.ts';
+import { activeStages, colorKey, currentCompany, currentStage, itemStatus, remainingDays, stageInput, stageRecord } from './productionPlan.ts';
 import type { PlanStage, PlanStageRecord } from './productionPlan';
 import type { ProductionOrder } from './productionOrder';
 import { productionStarted } from './productionOrder.ts';
@@ -25,4 +25,14 @@ export function liveGroups(orders: ProductionOrder[]) {
   const groups = new Map<string, { id: string; name: string; total: number; stages: Partial<Record<PlanStage, number>>; rows: ReturnType<typeof liveOrders> }>();
   for (const row of liveOrders(orders)) { const g = groups.get(row.groupId) ?? { id: row.groupId, name: row.order.product.productName, total: 0, stages: {}, rows: [] }; g.total += row.quantity; g.stages[row.type] = (g.stages[row.type] ?? 0) + row.quantity; g.rows.push(row); groups.set(g.id, g); }
   return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+}
+
+export function filterLiveOrders(orders: ProductionOrder[], filters: { product?: string; customer?: string; stage?: string; company?: string; deadline?: string; search?: string }, customerName: (id: string) => string) {
+  const search = (filters.search ?? '').trim().toLocaleLowerCase('tr-TR');
+  return liveOrders(orders).filter(({ order: o, type, groupId, companyId }) => {
+    const days = remainingDays(stagePlan(o, type)?.dueDate || o.dueDate);
+    return (!filters.product || groupId === filters.product) && (!filters.customer || o.customerId === filters.customer) && (!filters.stage || type === filters.stage) && (!filters.company || companyId === filters.company)
+      && (!filters.deadline || (days !== undefined && days !== null && (filters.deadline === 'Geciken' ? days < 0 : filters.deadline === 'Bugün Terminli' ? days === 0 : days > 0 && days <= 7)))
+      && [o.orderNo, customerName(o.customerId), o.product.brand, o.product.modelName].join(' ').toLocaleLowerCase('tr-TR').includes(search);
+  }).map((r) => r.order);
 }
