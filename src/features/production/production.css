@@ -121,3 +121,6 @@
 .inline-choice > .ws-field { flex: 1; min-width: 0; }
 .compact-choice { display: flex; align-items: center; gap: .4rem; width: fit-content; }
 .compact-choice [aria-pressed="true"] { outline: 2px solid currentColor; }
+.order-date-stack { display: grid; gap: 12px; grid-column: 1 / -1; max-width: 420px; }
+.stage-plan-row { padding: 12px 0; border-bottom: 1px solid #dce2ea; }
+.ws-table a.production-detail-link { display: inline-flex; align-items: center; justify-content: center; color: #28486f; background: #edf2f7; font-size: 12px; min-width: 64px; min-height: 32px; opacity: 1; white-space: nowrap; }

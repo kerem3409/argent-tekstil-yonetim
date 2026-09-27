@@ -11,6 +11,8 @@ export interface PlanColor { color: string; quantity: number }
 export interface PlanMaterial { name: string; description: string; quantity: string }
 export interface PlanStageRecord {
   type: PlanStage; companyId: string; date: string; notes: string[];
+  actualStartedAt?: string;
+  actualCompletedAt?: string;
   colorNotes: { color: string; note: string }[];
   result: { date: string; rows: { color: string; quantity: number; rollCount?: number; kg?: number; date?: string }[] } | null;
 }

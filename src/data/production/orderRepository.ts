@@ -4,7 +4,7 @@ import { createDeletionPin } from './deletionPin.ts';
 import { validateWorkflowStore, PRODUCTION_STORAGE_KEY } from './workflowRepository.ts';
 import { migratedOrders } from './orderMigration.ts';
 import { checkDate, requireText, uid } from '../../domain/common.ts';
-import { activeStages, colorKey, isInternalPlan, itemStatus, stageAvailable, stageRecord, validateNotes, validatePlanInput } from '../../domain/productionPlan.ts';
+import { activeStages, colorKey, isInternalPlan, itemStatus, stageAvailable, stageInput as stageInputFor, stageRecord, validateNotes, validatePlanInput } from '../../domain/productionPlan.ts';
 import { historicalBrandId, validateOrderProduct } from '../../domain/productionOrder.ts';
 import type { ProductionBrand, ProductionOrder, ProductionOrderInput, OrderProduct } from '../../domain/productionOrder';
 import type { PlanStage, PlanStageRecord } from '../../domain/productionPlan';
@@ -13,6 +13,8 @@ import type { ContactRepository } from '../contacts/repository';
 import type { ProductDefinitionRepository } from '../productDefinitions/repository';
 import type { ProductRepository } from '../products/repository';
 import type { StageInput } from './planRepository';
+import type { StagePlan } from '../../domain/productionOrder';
+import { operationDate, resultChanged, stagePlan } from '../../domain/productionPlanning.ts';
 
 interface Dependencies { contacts: Pick<ContactRepository, 'get'>; definitions: Pick<ProductDefinitionRepository, 'requireActive'>; products: Pick<ProductRepository, 'load' | 'receiveProduction'> }
 export function createOrderRepository(storage: () => StoragePort, deps: Dependencies, lock?: StoreLock) {
@@ -33,6 +35,7 @@ export function createOrderRepository(storage: () => StoragePort, deps: Dependen
   }
   function editable(o: ProductionOrder) { if (o.product.legacy?.readOnly || o.product.legacy?.completed) throw new Error('Bu ürünün eski işlemleri salt okunur korunuyor.'); return o.product; }
   async function customer(id: string, previous?: string) { requireText(id, 'Müşteri'); if (isInternalPlan({ customerId: id }) || id === previous) return; const c = await deps.contacts.get(id); if (!c || c.status !== 'Aktif' || !c.roles.includes('Hazır Giyim Müşterisi')) throw new Error('Aktif müşteri seçin.'); }
+  async function company(type: PlanStage, id: string) { const c = await deps.contacts.get(id); if (!c || c.status !== 'Aktif' || !c.roles.includes('Fasoncu') || !c.services.includes(type)) throw new Error(`${type} hizmeti veren aktif bir Fasoncu seçin.`); }
   async function brands(data: WorkflowStore): Promise<ProductionBrand[]> {
     const result = [...(data.productionBrands ?? [])];
     const { orders } = await all(data); const stock = await deps.products.load();
@@ -54,6 +57,48 @@ export function createOrderRepository(storage: () => StoragePort, deps: Dependen
     async load() { return all(await store.load()); },
     async list() { return (await all(await store.load())).orders; },
     async listBrands() { return brands(await store.load()); },
+    async savePlanning(id: string, revision: number, plans: StagePlan[]) {
+      for (const p of plans) { await company(p.type, p.companyId); checkDate(p.plannedStart); checkDate(p.dueDate); if (p.dueDate < p.plannedStart) throw new Error('Aşama termini başlangıçtan önce olamaz.'); }
+      return store.transact(async (data) => { const o = await find(data, id, revision); editable(o);
+        if (new Set(plans.map((p) => p.type)).size !== plans.length || plans.some((p) => !activeStages(o.product).includes(p.type))) throw new Error('Planlanan aşamalar geçersiz.');
+        o.stagePlans = [...(o.stagePlans ?? []).filter((p) => !plans.some((n) => n.type === p.type)), ...structuredClone(plans)];
+        for (const p of plans) { const started = stageRecord(o.product, p.type); if (started) started.companyId = p.companyId; }
+        return save(data, o);
+      });
+    },
+    async beginPlannedStage(id: string, revision: number, type: PlanStage) {
+      return store.transact(async (data) => { const o = await find(data, id, revision), p = editable(o), plan = stagePlan(o, type);
+        if (!plan) throw new Error('Önce bu aşamanın firma ve tarih planını kaydedin.'); await company(type, plan.companyId);
+        if (!stageAvailable(p, type) || stageRecord(p, type)) throw new Error('Aşama zaten başladı veya önceki aşama tamamlanmadı.');
+        const now = new Date().toISOString(); o.productionStartedAt ??= now;
+        p.stages.push({ type, companyId: plan.companyId, date: operationDate(), actualStartedAt: now, notes: [], colorNotes: [], result: null }); return save(data, o);
+      });
+    },
+    async recordStageResult(id: string, revision: number, type: PlanStage, rows: NonNullable<PlanStageRecord['result']>['rows'], notes: string[], confirmed = false) {
+      validateNotes(notes);
+      return store.transact(async (data) => { const o = await find(data, id, revision), p = editable(o), s = stageRecord(p, type);
+        if (!s || !stageAvailable(p, type)) throw new Error('Önce aşamayı başlatın.');
+        const result = { date: operationDate(), rows: rows.map(({ color, quantity, rollCount, kg }) => ({ color, quantity, ...(rollCount !== undefined ? { rollCount } : {}), ...(kg !== undefined ? { kg } : {}) })) };
+        const changed = resultChanged(s.result, result), nextIndex = activeStages(p).indexOf(type) + 1;
+        if (changed && p.stockTransfer) throw new Error('Stoğa aktarılmış miktar değiştirilemez. Önce stok düzeltme sürecini tamamlayın; firma, tarih, top/kg ve notlar düzenlenebilir.');
+        if (changed && nextIndex < activeStages(p).length && !confirmed) throw new Error('Sonraki aşamanın başlangıcı değişecek. Değişikliği onaylayın.');
+        if (s.result) (o.resultHistory ??= []).push({ type, changedAt: new Date().toISOString(), previous: structuredClone(s.result) });
+        s.result = result; s.notes = [...notes]; s.actualCompletedAt = new Date().toISOString();
+        for (const downstream of activeStages(p).slice(nextIndex)) { const record = stageRecord(p, downstream); if (!record?.result) continue;
+          const input = stageInputFor(p, downstream);
+          if (record.result.rows.some((r) => r.quantity > (input.find((v) => colorKey(v.color) === colorKey(r.color))?.quantity ?? 0))) throw new Error(`${downstream} sonucu yeni başlangıç miktarını aşıyor. Önce ${downstream} sonucunu düzeltin. Hiçbir kayıt değiştirilmedi.`);
+        }
+        return save(data, o);
+      });
+    },
+    async bulkArchiveAction(selection: { id: string; revision: number }[], action: 'restore' | 'trash', pin = '') {
+      if (!selection.length || new Set(selection.map((s) => s.id)).size !== selection.length) throw new Error('Kayıt seçin.');
+      if (action === 'trash') await deletionPin.verify(pin);
+      return store.transact(async (data) => { const selected = await Promise.all(selection.map((s) => find(data, s.id, s.revision, false)));
+        if (selected.some((o) => !o.archived || o.deleted)) throw new Error('Seçim değişti. Arşiv listesini yenileyin.');
+        for (const o of selected) { if (action === 'restore') { o.archived = false; o.archivedAt = null; } else { o.deleted = true; o.deletedAt = new Date().toISOString(); } save(data, o); }
+      });
+    },
     async startProduction(id: string, revision: number) { return store.transact(async (data) => { const o = await find(data, id, revision); editable(o); if (!o.productionStartedAt) o.productionStartedAt = new Date().toISOString(); return save(data, o); }); },
     async saveStage(id: string, revision: number, type: PlanStage, input: StageInput, result: NonNullable<PlanStageRecord['result']>) {
       requireText(input.companyId, 'Fasoncu / Firma'); checkDate(input.date); checkDate(result.date); validateNotes(input.notes);

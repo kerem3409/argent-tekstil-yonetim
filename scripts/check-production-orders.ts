@@ -10,6 +10,8 @@ import type { ProductionOrderInput } from '../src/domain/productionOrder';
 import type { PlanStage } from '../src/domain/productionPlan';
 import { createOrderDrafts, DRAFT_KEY } from '../src/data/production/orderDrafts.ts';
 import { stockStatus, differenceText } from '../src/domain/productionOrder.ts';
+import { liveGroups, stagePlan } from '../src/domain/productionPlanning.ts';
+import { currentCompany, activeStages } from '../src/domain/productionPlan.ts';
 
 async function fixture() {
   const values = new Map<string, string>();
@@ -86,4 +88,45 @@ test('Bölüm kaydı atomik, müşteri siparişi stok bekler ve bir kez aktarıl
   assert.equal(stockStatus(o), 'Stoğa Aktarılmayı Bekliyor'); assert.equal(differenceText(500, 510), '+10 adet'); assert.equal(differenceText(510, 505), '5 fire');
   await repo.transfer(o.id, o.revision); o = (await repo.list())[0]; assert.equal(stockStatus(o), 'Stoğa Aktarıldı');
   await repo.transfer(o.id, o.revision); assert.equal(receipts.length, 1); assert.equal(receipts[0].colors.reduce((n: number, r: any) => n + r.quantity, 0), 793);
+});
+
+test('Zincir sonuçsuz planlanır; başlatma, düzeltme, onay ve stok tutarlılığı', async () => {
+  const { repo, input, values } = await fixture(); let o = await repo.create(input);
+  const plans = activeStages(o.product).map((type) => ({ type, companyId: type, plannedStart: '2026-10-01', dueDate: '2026-10-05' }));
+  o = await repo.savePlanning(o.id, o.revision, plans); assert.equal(o.product.stages.length, 0); assert.equal(currentCompany(o.product), '');
+  assert.equal(liveGroups([o]).length, 0); await assert.rejects(repo.beginPlannedStage(o.id, o.revision, 'Nakış'));
+  const rows = (qty: number) => [{ color: 'Siyah', quantity: qty, rollCount: 10, kg: 210 }, { color: 'Beyaz', quantity: 300 }];
+  o = await repo.beginPlannedStage(o.id, o.revision, 'Kesim'); assert.equal(currentCompany(o.product), 'Kesim'); assert.equal(o.product.stages[0].result, null);
+  o = await repo.recordStageResult(o.id, o.revision, 'Kesim', rows(510), ['Kesim notu']); assert.ok(o.product.stages[0].actualCompletedAt);
+  o = await repo.beginPlannedStage(o.id, o.revision, 'Nakış'); assert.equal(currentCompany(o.product), 'Nakış');
+  o = await repo.recordStageResult(o.id, o.revision, 'Nakış', rows(500), []);
+  await assert.rejects(repo.recordStageResult(o.id, o.revision, 'Nakış', rows(480), []), /onaylayın/);
+  o = await repo.recordStageResult(o.id, o.revision, 'Nakış', rows(480), [], true); assert.equal(stageInput(o.product, 'Dikim')[0].quantity, 480);
+  o = await repo.beginPlannedStage(o.id, o.revision, 'Dikim'); o = await repo.recordStageResult(o.id, o.revision, 'Dikim', rows(470), []);
+  const before = values.get('argent-tekstil.production.v1'); await assert.rejects(repo.recordStageResult(o.id, o.revision, 'Nakış', rows(460), [], true), /Önce Dikim/); assert.equal(values.get('argent-tekstil.production.v1'), before);
+  o = await repo.savePlanning(o.id, o.revision, [{ ...plans[2], dueDate: '2026-10-07', plannedStart: '2026-10-02' }]); assert.equal(stagePlan(o, 'Dikim')?.dueDate, '2026-10-07');
+  o = await repo.beginPlannedStage(o.id, o.revision, 'Ütü & Paket'); o = await repo.recordStageResult(o.id, o.revision, 'Ütü & Paket', rows(465), []); await repo.transfer(o.id, o.revision); o = (await repo.list())[0];
+  await assert.rejects(repo.recordStageResult(o.id, o.revision, 'Kesim', rows(520), [], true), /Stoğa aktarılmış/);
+  o = await repo.recordStageResult(o.id, o.revision, 'Kesim', [{ ...rows(510)[0], kg: 215 }, rows(510)[1]], ['Düzeltilen not']); assert.equal(o.product.stages[0].result?.rows[0].kg, 215); assert.ok(o.resultHistory?.length);
+});
+
+test('Toplu arşiv işlemleri bir bütün olarak uygulanır, yanlış PIN/eski revizyon yazmaz', async () => {
+  const { repo, input, values } = await fixture(); const orders = [];
+  for (let i = 0; i < 4; i++) { const o = await repo.create(input); orders.push(await repo.setArchived(o.id, o.revision, true)); }
+  await repo.deletionPin.setup('123456', '123456'); const before = values.get('argent-tekstil.production.v1');
+  await assert.rejects(repo.bulkArchiveAction(orders.slice(0, 3), 'trash', '000000')); assert.equal(values.get('argent-tekstil.production.v1'), before);
+  await assert.rejects(repo.bulkArchiveAction([orders[0], { ...orders[1], revision: 0 }], 'restore')); assert.equal(values.get('argent-tekstil.production.v1'), before);
+  await repo.bulkArchiveAction(orders.slice(0, 3), 'restore'); assert.equal((await repo.list()).filter((o) => o.archived).length, 1);
+  await repo.bulkArchiveAction([orders[3]], 'trash', '123456'); assert.equal((await repo.list()).filter((o) => o.deleted).length, 1); const deleted = (await repo.list()).find((o) => o.deleted)!; await repo.restore(deleted.id, deleted.revision); assert.ok((await repo.list()).find((o) => o.id === deleted.id)?.archived);
+});
+
+test('Canlı üretim: farklı müşteriler tek ürün, bir sipariş tek sütun ve güvenilir miktar', async () => {
+  const { repo, input } = await fixture();
+  let a = await repo.create(input), b = await repo.create({ ...input, customerId: INTERNAL_CUSTOMER_ID }); const waiting = await repo.create(input);
+  const plans = activeStages(a.product).map((type) => ({ type, companyId: type, plannedStart: input.date, dueDate: input.dueDate }));
+  a = await repo.savePlanning(a.id, a.revision, plans); b = await repo.savePlanning(b.id, b.revision, plans);
+  a = await repo.beginPlannedStage(a.id, a.revision, 'Kesim'); b = await repo.beginPlannedStage(b.id, b.revision, 'Kesim');
+  b = await repo.recordStageResult(b.id, b.revision, 'Kesim', [{ color: 'Siyah', quantity: 510 }, { color: 'Beyaz', quantity: 300 }], []); b = await repo.beginPlannedStage(b.id, b.revision, 'Nakış');
+  const groups = liveGroups([a, b, waiting, { ...a, id: 'archived', archived: true }, { ...b, id: 'deleted', deleted: true }, { ...a, id: 'stocked', product: { ...a.product, stockTransfer: { stockIds: [], date: input.date } } }]);
+  assert.equal(groups.length, 1); assert.equal(groups[0].total, 1610); assert.deepEqual(groups[0].stages, { Kesim: 800, Nakış: 810 }); assert.equal(groups[0].rows.length, 2); assert.equal(Object.values(groups[0].stages).reduce((a, b) => a + b, 0), groups[0].total);
 });

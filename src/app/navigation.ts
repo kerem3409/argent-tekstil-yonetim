@@ -18,7 +18,8 @@ export const navigation: NavigationGroup[] = [
     { id: 'equipment', title: 'Makine & Teçhizat', path: '/stok/makine-techizat', description: 'Atölyenin makine ve teçhizat kayıtlarını görüntüleyin.', columns: ['Makine Kodu', 'Makine Adı', 'Konum', 'Durum'] },
   ] },
   { title: 'Üretim', symbol: 'production', pages: [
-    { id: 'production-orders', title: 'Üretim Siparişleri', path: '/uretim/siparisler', description: 'Her siparişin üretimini aynı kayıtta takip edin.', columns: ['Sipariş No', 'Sipariş Adı', 'Müşteri', 'Termin', 'Durum'] },
+    { id: 'production-orders', title: 'Üretim Planları', path: '/uretim/siparisler', description: 'Her siparişin üretimini aynı kayıtta takip edin.', columns: ['Sipariş No', 'Sipariş Adı', 'Müşteri', 'Termin', 'Durum'] },
+    { id: 'live-production', title: 'Canlı Üretim', path: '/uretim/canli', description: 'Aktif üretimi ürün türü ve aşama bazında izleyin.', columns: ['Ürün', 'Aktif Toplam', 'Kesim', 'Nakış', 'Baskı', 'Dikim', 'Ütü/Paket'] },
     { id: 'production-archives', title: 'Arşiv', path: '/uretim/arsivler', description: 'Arşivlenen siparişleri görüntüleyin ve geri alın.', columns: ['Sipariş No', 'Sipariş Adı', 'Termin'] },
     { id: 'production-trash', title: 'Çöp Kutusu', path: '/uretim/cop-kutusu', description: 'Siparişleri bağlı aşamalarıyla birlikte geri yükleyin.', columns: ['Sipariş No', 'Sipariş Adı', 'İşlem'] },
   ] },
