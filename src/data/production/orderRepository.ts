@@ -18,7 +18,12 @@ interface Dependencies { contacts: Pick<ContactRepository, 'get'>; definitions: 
 export function createOrderRepository(storage: () => StoragePort, deps: Dependencies, lock?: StoreLock) {
   const store = createStore<WorkflowStore>(PRODUCTION_STORAGE_KEY, () => ({ version: 1, plans: [], jobs: [], stages: [], nextPlan: 1, nextJob: 1, nextStage: 1 }), validateWorkflowStore, storage, lock);
   const deletionPin = createDeletionPin(storage, lock);
-  async function all(data: WorkflowStore) { return migratedOrders(data, (await deps.products.load()).productionReceipts); }
+  async function all(data: WorkflowStore) {
+    const receipts = (await deps.products.load()).productionReceipts ?? [];
+    const result = migratedOrders(data, receipts);
+    result.orders = result.orders.map((o) => { const receipt = receipts.find((r) => r.jobId === o.stockSourceId); return receipt ? { ...o, product: { ...o.product, stockTransfer: { stockIds: receipt.stockIds, date: receipt.date } } } : o; });
+    return result;
+  }
   function save(data: WorkflowStore, o: ProductionOrder) { o.revision++; o.updatedAt = new Date().toISOString(); data.productionOrders = [...(data.productionOrders ?? []).filter((v) => v.id !== o.id), o]; return o; }
   async function find(data: WorkflowStore, id: string, revision: number, writable = true) {
     const o = (await all(data)).orders.find((o) => o.id === id);
@@ -49,13 +54,31 @@ export function createOrderRepository(storage: () => StoragePort, deps: Dependen
     async load() { return all(await store.load()); },
     async list() { return (await all(await store.load())).orders; },
     async listBrands() { return brands(await store.load()); },
+    async startProduction(id: string, revision: number) { return store.transact(async (data) => { const o = await find(data, id, revision); editable(o); if (!o.productionStartedAt) o.productionStartedAt = new Date().toISOString(); return save(data, o); }); },
+    async saveStage(id: string, revision: number, type: PlanStage, input: StageInput, result: NonNullable<PlanStageRecord['result']>) {
+      requireText(input.companyId, 'Fasoncu / Firma'); checkDate(input.date); checkDate(result.date); validateNotes(input.notes);
+      const c = await deps.contacts.get(input.companyId);
+      if (!c || c.status !== 'Aktif' || !c.roles.includes('Fasoncu') || !c.services.includes(type)) throw new Error(`${type} hizmeti veren aktif bir Fasoncu seçin.`);
+      return store.transact(async (data) => {
+        const o = await find(data, id, revision), p = editable(o), previous = stageRecord(p, activeStages(p)[activeStages(p).indexOf(type) - 1]);
+        if (!o.productionStartedAt && !p.stages.length && !o.source) throw new Error('Önce Üretime Başla işlemini yapın.');
+        if (!stageAvailable(p, type)) throw new Error('Önce önceki aşamayı tamamlayın.');
+        const existing = stageRecord(p, type);
+        if (existing?.result) throw new Error('Bu aşamanın sonucu zaten kaydedildi.');
+        if (existing && (existing.companyId !== input.companyId || existing.date !== input.date)) throw new Error('Başlamış aşamanın firması ve tarihi değiştirilemez.');
+        if (input.date < (previous?.result?.date ?? o.date) || result.date < input.date) throw new Error('İşlem tarihlerini kontrol edin.');
+        for (const row of result.rows) if (row.date) { checkDate(row.date); if (row.date < input.date || row.date > result.date) throw new Error('Renk sonuç tarihini kontrol edin.'); }
+        const record = { type, ...structuredClone(input), colorNotes: [], result: structuredClone(result) };
+        p.stages = [...p.stages.filter((s) => s.type !== type), record]; return save(data, o);
+      });
+    },
     async createBrand(name: string) { requireText(name, 'Marka', 200); return store.transact(async (data) => { const existing = (await brands(data)).find((b) => colorKey(b.name) === colorKey(name)); if (existing) return existing; const b = { id: uid(), name: name.trim() }; (data.productionBrands ??= []).push(b); return b; }); },
-    async create(input: ProductionOrderInput) {
+    async create(input: ProductionOrderInput, sourceDraftId?: string) {
       await customer(input.customerId);
-      return store.transact(async (data) => { const p = await product(data, input), existing = (await all(data)).orders; let number = data.nextProductionOrder ?? 1;
+      return store.transact(async (data) => { const existing = (await all(data)).orders; const converted = sourceDraftId && existing.find((o) => o.sourceDraftId === sourceDraftId); if (converted) return converted; const p = await product(data, input); let number = data.nextProductionOrder ?? 1;
         while (existing.some((o) => o.orderNo === `SP-${String(number).padStart(3, '0')}`)) number++;
         data.nextProductionOrder = number + 1; const id = uid(), now = new Date().toISOString();
-        const o: ProductionOrder = { name: input.name.trim(), customerId: input.customerId, date: input.date, dueDate: input.dueDate, customerReference: input.customerReference, customerNote: input.customerNote, note: input.note, product: p, workflowVersion: 4, id, orderNo: `SP-${String(number).padStart(3, '0')}`, revision: 0, createdAt: now, updatedAt: now, stockSourceId: `order:${id}` };
+        const o: ProductionOrder = { name: input.name.trim(), customerId: input.customerId, date: input.date, dueDate: input.dueDate, customerReference: input.customerReference, customerNote: input.customerNote, note: input.note, product: p, workflowVersion: 4, sourceDraftId, id, orderNo: `SP-${String(number).padStart(3, '0')}`, revision: 0, createdAt: now, updatedAt: now, stockSourceId: `order:${id}` };
         (data.productionOrders ??= []).push(o); return o;
       });
     },
@@ -74,7 +97,7 @@ export function createOrderRepository(storage: () => StoragePort, deps: Dependen
     async setArchived(id: string, revision: number, value: boolean) { return store.transact(async (data) => { const o = await find(data, id, revision, false); if (o.deleted) throw new Error('Önce Çöp Kutusundan geri alın.'); o.archived = value; o.archivedAt = value ? new Date().toISOString() : null; return save(data, o); }); },
     async trash(id: string, revision: number, pin: string) { await deletionPin.verify(pin); return store.transact(async (data) => { const o = await find(data, id, revision, false); o.deleted = true; o.deletedAt = new Date().toISOString(); return save(data, o); }); },
     async restore(id: string, revision: number) { return store.transact(async (data) => { const o = await find(data, id, revision, false); o.deleted = false; o.deletedAt = null; return save(data, o); }); },
-    async transfer(id: string, revision: number) { return store.transact(async (data) => { const o = await find(data, id, revision), p = editable(o); if (!isInternalPlan(o)) throw new Error('Stoğa aktarım ARGENT siparişleri içindir.'); if (p.stockTransfer) return p.stockTransfer; if (itemStatus(p) !== 'Tamamlandı') throw new Error('Önce bütün aşamaları tamamlayın.');
+    async transfer(id: string, revision: number) { return store.transact(async (data) => { const o = await find(data, id, revision), p = editable(o); if (p.stockTransfer) return p.stockTransfer; if (itemStatus(p) !== 'Tamamlandı') throw new Error('Önce bütün aşamaları tamamlayın.');
       const result = stageRecord(p, activeStages(p).at(-1)!)!.result!, cut = stageRecord(p, 'Kesim')!.result!;
       const receipt = await deps.products.receiveProduction({ jobId: o.stockSourceId, productId: p.id, productDefinitionId: p.productDefinitionId || undefined, productionNo: o.orderNo, name: p.modelName, brand: p.brand, fabric: p.fabricName, grammage: p.gsm, sizeSeries: p.sizeSeries, colors: result.rows.map((r) => ({ color: r.color, brand: p.brand, size: '', rowId: `${p.id}:${colorKey(r.color)}`, quantity: r.quantity })), waste: cut.rows.reduce((n, r) => n + r.quantity, 0) - result.rows.reduce((n, r) => n + r.quantity, 0), date: result.date, note: '', unitCostMinor: 0 });
       p.stockTransfer = { stockIds: receipt.stockIds, date: receipt.date }; save(data, o); return p.stockTransfer;

@@ -8,6 +8,8 @@ import { emptyEmbroidery, emptyPackaging } from '../src/domain/productionOrder.t
 import { defaultSizeDistribution } from '../src/domain/productionWorkflow.ts';
 import type { ProductionOrderInput } from '../src/domain/productionOrder';
 import type { PlanStage } from '../src/domain/productionPlan';
+import { createOrderDrafts, DRAFT_KEY } from '../src/data/production/orderDrafts.ts';
+import { stockStatus, differenceText } from '../src/domain/productionOrder.ts';
 
 async function fixture() {
   const values = new Map<string, string>();
@@ -59,4 +61,29 @@ test('v3 çok ürünlü plan ayrı siparişlere dönüşür, kaynak ve kardeş k
   const trashed = orders.find((o) => o.deleted)!; await repo.restore(trashed.id, trashed.revision); assert.equal((await repo.list()).length, 3);
   const result = migratedOrders({ unifiedPlans: [{ id: 'bad', planNo: 'bad', items: null }] } as any); assert.ok(result.warnings.length); assert.equal(result.orders.length, 0);
   values.set(key, '{broken'); await assert.rejects(repo.list()); assert.equal(storage.getItem(key), '{broken');
+});
+
+test('Taslak eksik alanları korur, sipariş sayılarına girmez ve tek kez dönüşür', async () => {
+  const { repo, input, storage, values } = await fixture(); const drafts = createOrderDrafts(() => storage);
+  let draft = drafts.save('draft-1', 0, { ...input, name: '', product: { ...input.product, brandId: '' } });
+  assert.equal((await repo.list()).length, 0); assert.equal(createOrderDrafts(() => storage).list()[0].input.product.gsm, '');
+  await assert.rejects(repo.create(draft.input, draft.id)); assert.equal(drafts.list().length, 1);
+  draft = drafts.save(draft.id, draft.revision, input); assert.throws(() => drafts.save(draft.id, 0, input), /başka sekmede/);
+  const saved = await repo.create(draft.input, draft.id); assert.equal((await repo.create(draft.input, draft.id)).id, saved.id); assert.equal((await repo.list()).length, 1);
+  values.set(DRAFT_KEY, '{broken'); assert.throws(() => drafts.save('new', 0, input), /korunuyor/); assert.equal(storage.getItem(DRAFT_KEY), '{broken');
+});
+
+test('Bölüm kaydı atomik, müşteri siparişi stok bekler ve bir kez aktarılır', async () => {
+  const { repo, input, receipts, values } = await fixture(); let o = await repo.create(input);
+  const stage = (type: PlanStage) => ({ companyId: type, date: input.date, notes: ['Teknik not'], colorNotes: [] });
+  const result = (qty: number) => ({ date: input.date, rows: [{ color: 'Siyah', quantity: qty, rollCount: 10, kg: 210, date: input.date }, { color: 'Beyaz', quantity: 295, rollCount: 6, kg: 125, date: input.date }] });
+  await assert.rejects(repo.saveStage(o.id, o.revision, 'Kesim', stage('Kesim'), result(510)), /Üretime Başla/);
+  o = await repo.startProduction(o.id, o.revision); const before = values.get('argent-tekstil.production.v1');
+  await assert.rejects(repo.saveStage(o.id, o.revision, 'Kesim', { ...stage('Kesim'), companyId: '' }, result(510)));
+  await assert.rejects(repo.saveStage(o.id, o.revision, 'Kesim', stage('Kesim'), { ...result(510), rows: [{ ...result(510).rows[0], date: '2026-09-01' }, result(510).rows[1]] }));
+  assert.equal(values.get('argent-tekstil.production.v1'), before);
+  for (const [type, qty] of [['Kesim', 510], ['Nakış', 505], ['Dikim', 500], ['Ütü & Paket', 498]] as [PlanStage, number][]) o = await repo.saveStage(o.id, o.revision, type, stage(type), result(qty));
+  assert.equal(stockStatus(o), 'Stoğa Aktarılmayı Bekliyor'); assert.equal(differenceText(500, 510), '+10 adet'); assert.equal(differenceText(510, 505), '5 fire');
+  await repo.transfer(o.id, o.revision); o = (await repo.list())[0]; assert.equal(stockStatus(o), 'Stoğa Aktarıldı');
+  await repo.transfer(o.id, o.revision); assert.equal(receipts.length, 1); assert.equal(receipts[0].colors.reduce((n: number, r: any) => n + r.quantity, 0), 793);
 });

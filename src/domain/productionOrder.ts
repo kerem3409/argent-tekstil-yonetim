@@ -1,5 +1,5 @@
 import { quantity, requireText } from './common.ts';
-import { validateNotes, validatePlanInput, validatePlanRecords } from './productionPlan.ts';
+import { itemStatus, validateNotes, validatePlanInput, validatePlanRecords } from './productionPlan.ts';
 import type { PlanItem, ProductionPlan } from './productionPlan';
 
 export interface EmbroideryInfo { notes: string[]; colorNotes: { color: string; note: string }[]; position: string; size: string; technicalNote: string }
@@ -12,10 +12,18 @@ export interface ProductionOrder {
   archived?: boolean; archivedAt?: string | null; deleted?: boolean; deletedAt?: string | null;
   source?: { planId: string; productId: string; planNo: string; legacyOrderId?: string };
   stockSourceId: string;
+  sourceDraftId?: string;
+  productionStartedAt?: string;
 }
 export type OrderProductInput = Omit<OrderProduct, 'id' | 'productName' | 'brand' | 'stages' | 'stockTransfer' | 'legacy'>;
 export interface ProductionOrderInput { name: string; customerId: string; date: string; dueDate: string; customerReference: string; customerNote: string; note: string; product: OrderProductInput }
 export interface ProductionBrand { id: string; name: string }
+export interface OrderDraft { id: string; revision: number; updatedAt: string; input: ProductionOrderInput }
+export const productionStarted = (o: ProductionOrder) => !!o.productionStartedAt || o.product.stages.length > 0 || !!o.product.legacy;
+export const stockStatus = (o: ProductionOrder) => o.product.stockTransfer ? 'Stoğa Aktarıldı' : itemStatus(o.product) === 'Tamamlandı' ? 'Stoğa Aktarılmayı Bekliyor' : 'Üretim Bekleniyor';
+export const orderGroup = (o: ProductionOrder) => itemStatus(o.product) === 'Tamamlandı' ? 'Tamamlandı' : productionStarted(o) ? 'Üretimde' : 'Planlama';
+export const orderProductionStatus = (o: ProductionOrder) => productionStarted(o) && itemStatus(o.product) === 'Planlama' ? 'Kesim Bekliyor' : itemStatus(o.product);
+export const differenceText = (start: number, actual: number) => actual > start ? `+${actual - start} adet` : `${start - actual} fire`;
 export const emptyEmbroidery = (): EmbroideryInfo => ({ notes: [], colorNotes: [], position: '', size: '', technicalNote: '' });
 export const emptyPackaging = (): PackagingInfo => ({ type: '', sizeMode: '', note: '', labelingNote: '' });
 export const historicalBrandId = (name: string) => `historical-brand:${encodeURIComponent(name.trim().toLocaleLowerCase('tr-TR'))}`;

@@ -12,7 +12,7 @@ export interface PlanMaterial { name: string; description: string; quantity: str
 export interface PlanStageRecord {
   type: PlanStage; companyId: string; date: string; notes: string[];
   colorNotes: { color: string; note: string }[];
-  result: { date: string; rows: { color: string; quantity: number; rollCount?: number; kg?: number }[] } | null;
+  result: { date: string; rows: { color: string; quantity: number; rollCount?: number; kg?: number; date?: string }[] } | null;
 }
 export interface PlanItem {
   id: string; productDefinitionId: string; productName: string; modelName: string; brand: string;

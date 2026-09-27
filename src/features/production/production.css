@@ -117,3 +117,7 @@
 .cutting-order-print li { white-space: pre-wrap; }
 @media print { .cutting-order-print { font-size: 10pt; } .cutting-order-print h2 { font-size: 12pt; margin-top: 12px; } .cutting-order-print tr { break-inside: avoid; } }
 .compact-control { min-width: 2rem; width: 2rem; padding: .35rem; justify-self: start; }
+.inline-choice { display: flex; align-items: end; gap: .4rem; }
+.inline-choice > .ws-field { flex: 1; min-width: 0; }
+.compact-choice { display: flex; align-items: center; gap: .4rem; width: fit-content; }
+.compact-choice [aria-pressed="true"] { outline: 2px solid currentColor; }
