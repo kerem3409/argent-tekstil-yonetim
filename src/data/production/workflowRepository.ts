@@ -1,3 +1,4 @@
+import { validateProductionOrders } from '../../domain/productionOrder.ts';
 import { cuttingOrderMethods, validateCuttingOrders } from './cuttingOrders.ts';
 import { validatePlanRecords } from '../../domain/productionPlan.ts';
 import { cuttingAllocation, cutProductionAllocation, itemInstructions } from '../../domain/cuttingWorkflow.ts';
@@ -26,6 +27,9 @@ export function validateWorkflowStore(value: unknown) {
   validateProductionStore(value);
   const data = value as WorkflowStore;
   validatePlanRecords(data.unifiedPlans);
+  validateProductionOrders(data.productionOrders);
+  if (data.nextProductionOrder !== undefined && (!Number.isSafeInteger(data.nextProductionOrder) || data.nextProductionOrder < 1)) throw new Error('Invalid order counter');
+  if (data.productionBrands !== undefined && (!Array.isArray(data.productionBrands) || data.productionBrands.some((b) => !b.id || !b.name?.trim()) || new Set(data.productionBrands.map((b) => b.id)).size !== data.productionBrands.length)) throw new Error('Invalid brand records');
   if (data.nextUnifiedPlan !== undefined && (!Number.isSafeInteger(data.nextUnifiedPlan) || data.nextUnifiedPlan < 1)) throw new Error('Plan sayacı geçersiz.');
   validateCuttingOrders(data);
   if (data.nextProduction !== undefined && (!Number.isSafeInteger(data.nextProduction) || data.nextProduction < 1)) throw new Error('Üretim sayacı geçersiz.');

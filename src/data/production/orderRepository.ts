@@ -1,0 +1,83 @@
+import { createStore } from '../shared/store.ts';
+import type { StoragePort, StoreLock } from '../shared/store';
+import { createDeletionPin } from './deletionPin.ts';
+import { validateWorkflowStore, PRODUCTION_STORAGE_KEY } from './workflowRepository.ts';
+import { migratedOrders } from './orderMigration.ts';
+import { checkDate, requireText, uid } from '../../domain/common.ts';
+import { activeStages, colorKey, isInternalPlan, itemStatus, stageAvailable, stageRecord, validateNotes, validatePlanInput } from '../../domain/productionPlan.ts';
+import { historicalBrandId, validateOrderProduct } from '../../domain/productionOrder.ts';
+import type { ProductionBrand, ProductionOrder, ProductionOrderInput, OrderProduct } from '../../domain/productionOrder';
+import type { PlanStage, PlanStageRecord } from '../../domain/productionPlan';
+import type { WorkflowStore } from '../../domain/productionWorkflow';
+import type { ContactRepository } from '../contacts/repository';
+import type { ProductDefinitionRepository } from '../productDefinitions/repository';
+import type { ProductRepository } from '../products/repository';
+import type { StageInput } from './planRepository';
+
+interface Dependencies { contacts: Pick<ContactRepository, 'get'>; definitions: Pick<ProductDefinitionRepository, 'requireActive'>; products: Pick<ProductRepository, 'load' | 'receiveProduction'> }
+export function createOrderRepository(storage: () => StoragePort, deps: Dependencies, lock?: StoreLock) {
+  const store = createStore<WorkflowStore>(PRODUCTION_STORAGE_KEY, () => ({ version: 1, plans: [], jobs: [], stages: [], nextPlan: 1, nextJob: 1, nextStage: 1 }), validateWorkflowStore, storage, lock);
+  const deletionPin = createDeletionPin(storage, lock);
+  async function all(data: WorkflowStore) { return migratedOrders(data, (await deps.products.load()).productionReceipts); }
+  function save(data: WorkflowStore, o: ProductionOrder) { o.revision++; o.updatedAt = new Date().toISOString(); data.productionOrders = [...(data.productionOrders ?? []).filter((v) => v.id !== o.id), o]; return o; }
+  async function find(data: WorkflowStore, id: string, revision: number, writable = true) {
+    const o = (await all(data)).orders.find((o) => o.id === id);
+    if (!o) throw new Error('Sipariş bulunamadı.');
+    if (o.revision !== revision) throw new Error('Sipariş değişti. Sayfayı yenileyin.');
+    if (writable && (o.archived || o.deleted)) throw new Error('Önce siparişi arşivden / Çöp Kutusundan geri alın.'); return o;
+  }
+  function editable(o: ProductionOrder) { if (o.product.legacy?.readOnly || o.product.legacy?.completed) throw new Error('Bu ürünün eski işlemleri salt okunur korunuyor.'); return o.product; }
+  async function customer(id: string, previous?: string) { requireText(id, 'Müşteri'); if (isInternalPlan({ customerId: id }) || id === previous) return; const c = await deps.contacts.get(id); if (!c || c.status !== 'Aktif' || !c.roles.includes('Hazır Giyim Müşterisi')) throw new Error('Aktif müşteri seçin.'); }
+  async function brands(data: WorkflowStore): Promise<ProductionBrand[]> {
+    const result = [...(data.productionBrands ?? [])];
+    const { orders } = await all(data); const stock = await deps.products.load();
+    const names = [...orders.map((o) => o.product.brand), ...(stock.records ?? []).map((r) => r.brand)];
+    for (const name of names) if (name?.trim() && !result.some((b) => colorKey(b.name) === colorKey(name))) result.push({ id: historicalBrandId(name), name: name.trim() });
+    return result;
+  }
+  async function product(data: WorkflowStore, input: ProductionOrderInput, old?: OrderProduct): Promise<OrderProduct> {
+    if ('items' in input || !input.product || Array.isArray(input.product)) throw new Error('Bir sipariş yalnızca tek ürün içerebilir.');
+    const b = (await brands(data)).find((b) => b.id === input.product.brandId);
+    if (!b) throw new Error('Kayıtlı bir marka seçin.');
+    const def = old?.productDefinitionId === input.product.productDefinitionId ? { name: old.productName } : await deps.definitions.requireActive(input.product.productDefinitionId);
+    const p: OrderProduct = { ...structuredClone(input.product), id: old?.id ?? uid(), productName: def.name, brand: b.name, stages: [], ...(old?.legacy ? { legacy: old.legacy } : {}) };
+    validatePlanInput({ ...input, items: [p] }); validateOrderProduct(p);
+    if (input.customerNote.length > 2000) throw new Error('Müşteri notu çok uzun.'); return p;
+  }
+  return {
+    deletionPin,
+    async load() { return all(await store.load()); },
+    async list() { return (await all(await store.load())).orders; },
+    async listBrands() { return brands(await store.load()); },
+    async createBrand(name: string) { requireText(name, 'Marka', 200); return store.transact(async (data) => { const existing = (await brands(data)).find((b) => colorKey(b.name) === colorKey(name)); if (existing) return existing; const b = { id: uid(), name: name.trim() }; (data.productionBrands ??= []).push(b); return b; }); },
+    async create(input: ProductionOrderInput) {
+      await customer(input.customerId);
+      return store.transact(async (data) => { const p = await product(data, input), existing = (await all(data)).orders; let number = data.nextProductionOrder ?? 1;
+        while (existing.some((o) => o.orderNo === `SP-${String(number).padStart(3, '0')}`)) number++;
+        data.nextProductionOrder = number + 1; const id = uid(), now = new Date().toISOString();
+        const o: ProductionOrder = { name: input.name.trim(), customerId: input.customerId, date: input.date, dueDate: input.dueDate, customerReference: input.customerReference, customerNote: input.customerNote, note: input.note, product: p, workflowVersion: 4, id, orderNo: `SP-${String(number).padStart(3, '0')}`, revision: 0, createdAt: now, updatedAt: now, stockSourceId: `order:${id}` };
+        (data.productionOrders ??= []).push(o); return o;
+      });
+    },
+    async update(id: string, revision: number, input: ProductionOrderInput) { return store.transact(async (data) => { const o = await find(data, id, revision); const i = editable(o); if (i.stages.length) throw new Error('Üretim başladığı için sipariş bilgileri kilitlidir.'); await customer(input.customerId, o.customerId); const p = await product(data, input, i); Object.assign(o, { name: input.name.trim(), customerId: input.customerId, date: input.date, dueDate: input.dueDate, customerReference: input.customerReference, customerNote: input.customerNote, note: input.note, product: p }); return save(data, o); }); },
+    async startStage(id: string, revision: number, type: PlanStage, input: StageInput) {
+      requireText(input.companyId, 'Fasoncu / Firma'); checkDate(input.date); validateNotes(input.notes);
+      const c = await deps.contacts.get(input.companyId); if (!c || c.status !== 'Aktif' || !c.roles.includes('Fasoncu') || !c.services.includes(type)) throw new Error(`${type} hizmeti veren aktif bir Fasoncu seçin.`);
+      return store.transact(async (data) => { const o = await find(data, id, revision), p = editable(o);
+        if (!stageAvailable(p, type)) throw new Error('Önce önceki aşamayı tamamlayın.'); if (stageRecord(p, type)) throw new Error('Bu aşama zaten başladı.');
+        const previous = stageRecord(p, activeStages(p)[activeStages(p).indexOf(type) - 1]); if (input.date < (previous?.result?.date ?? o.date)) throw new Error('Başlangıç tarihi önceki işlemden önce olamaz.');
+        for (const row of input.colorNotes) if (!p.colors.some((r) => colorKey(r.color) === colorKey(row.color)) || row.note.length > 2000) throw new Error('Renk notu geçersiz.');
+        p.stages.push({ type, ...structuredClone(input), result: null }); return save(data, o);
+      });
+    },
+    async finishStage(id: string, revision: number, type: PlanStage, result: NonNullable<PlanStageRecord['result']>) { checkDate(result.date); return store.transact(async (data) => { const o = await find(data, id, revision), p = editable(o), s = stageRecord(p, type); if (!s || s.result || !stageAvailable(p, type)) throw new Error('Aşama başlamamış veya zaten tamamlanmış.'); if (result.date < s.date) throw new Error('Sonuç tarihi başlangıçtan önce olamaz.'); s.result = structuredClone(result); return save(data, o); }); },
+    async setArchived(id: string, revision: number, value: boolean) { return store.transact(async (data) => { const o = await find(data, id, revision, false); if (o.deleted) throw new Error('Önce Çöp Kutusundan geri alın.'); o.archived = value; o.archivedAt = value ? new Date().toISOString() : null; return save(data, o); }); },
+    async trash(id: string, revision: number, pin: string) { await deletionPin.verify(pin); return store.transact(async (data) => { const o = await find(data, id, revision, false); o.deleted = true; o.deletedAt = new Date().toISOString(); return save(data, o); }); },
+    async restore(id: string, revision: number) { return store.transact(async (data) => { const o = await find(data, id, revision, false); o.deleted = false; o.deletedAt = null; return save(data, o); }); },
+    async transfer(id: string, revision: number) { return store.transact(async (data) => { const o = await find(data, id, revision), p = editable(o); if (!isInternalPlan(o)) throw new Error('Stoğa aktarım ARGENT siparişleri içindir.'); if (p.stockTransfer) return p.stockTransfer; if (itemStatus(p) !== 'Tamamlandı') throw new Error('Önce bütün aşamaları tamamlayın.');
+      const result = stageRecord(p, activeStages(p).at(-1)!)!.result!, cut = stageRecord(p, 'Kesim')!.result!;
+      const receipt = await deps.products.receiveProduction({ jobId: o.stockSourceId, productId: p.id, productDefinitionId: p.productDefinitionId || undefined, productionNo: o.orderNo, name: p.modelName, brand: p.brand, fabric: p.fabricName, grammage: p.gsm, sizeSeries: p.sizeSeries, colors: result.rows.map((r) => ({ color: r.color, brand: p.brand, size: '', rowId: `${p.id}:${colorKey(r.color)}`, quantity: r.quantity })), waste: cut.rows.reduce((n, r) => n + r.quantity, 0) - result.rows.reduce((n, r) => n + r.quantity, 0), date: result.date, note: '', unitCostMinor: 0 });
+      p.stockTransfer = { stockIds: receipt.stockIds, date: receipt.date }; save(data, o); return p.stockTransfer;
+    }); },
+  };
+}

@@ -1,9 +1,10 @@
+import type { ProductionOrder } from '../../domain/productionOrder';
 import { useEffect, useRef, useState } from 'react';
 import type { ProductionOrderCard, ProductionRecord } from '../../domain/productionWorkflow';
-import { workflowRepository, planRepository } from '../../data/production';
+import { workflowRepository, planRepository, orderRepository } from '../../data/production';
 import type { ProductionPlan } from '../../domain/productionPlan';
 
-export function RecordActions({ kind, record, done }: { kind: 'order' | 'production' | 'plan'; record: ProductionOrderCard | ProductionRecord | ProductionPlan; done: () => void }) {
+export function RecordActions({ kind, record, done }: { kind: 'order' | 'production' | 'plan' | 'productionOrder'; record: ProductionOrderCard | ProductionRecord | ProductionPlan | ProductionOrder; done: () => void }) {
   const [operation, setOperation] = useState<'archive' | 'delete' | 'restore'>();
   return <span className="record-actions">
     {record.deleted ? <button type="button" className="button ws-secondary" onClick={() => setOperation('restore')}>Çöp Kutusundan Geri Yükle</button> : <>
@@ -14,7 +15,7 @@ export function RecordActions({ kind, record, done }: { kind: 'order' | 'product
   </span>;
 }
 
-function RecordDialog({ kind, record, operation, close, done }: { kind: 'order' | 'production' | 'plan'; record: ProductionOrderCard | ProductionRecord | ProductionPlan; operation: 'archive' | 'delete' | 'restore'; close: () => void; done: () => void }) {
+function RecordDialog({ kind, record, operation, close, done }: { kind: 'order' | 'production' | 'plan' | 'productionOrder'; record: ProductionOrderCard | ProductionRecord | ProductionPlan | ProductionOrder; operation: 'archive' | 'delete' | 'restore'; close: () => void; done: () => void }) {
   const [configured, setConfigured] = useState<boolean>();
   const [pin, setPin] = useState(''); const [confirmation, setConfirmation] = useState('');
   const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
@@ -37,7 +38,12 @@ function RecordDialog({ kind, record, operation, close, done }: { kind: 'order' 
         await workflowRepository.deletionPin.setup(pin, confirmation); setConfigured(true); setPin(''); setConfirmation(''); return;
       }
       const revision = record.revision ?? 0;
-      if (kind === 'plan') {
+      if (kind === 'productionOrder') {
+        if (operation === 'archive') await orderRepository.setArchived(record.id, revision, !record.archived);
+        else if (operation === 'delete') await orderRepository.trash(record.id, revision, pin);
+        else await orderRepository.restore(record.id, revision);
+      }
+      else if (kind === 'plan') {
         if (operation === 'archive') await planRepository.setArchived(record.id, revision, !record.archived);
         else if (operation === 'delete') await planRepository.trash(record.id, revision, pin);
         else await planRepository.restore(record.id, revision);
@@ -61,7 +67,7 @@ function RecordDialog({ kind, record, operation, close, done }: { kind: 'order' 
       else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog.current)) { event.preventDefault(); first?.focus(); }
     }
   }}>
-    <h2>{'planNo' in record ? record.planNo : 'orderNo' in record ? record.orderNo : record.productionNo}</h2><p>{kind === 'plan' ? 'Üretim planı, ürün kalemleri ve bütün aşama bilgileri birlikte taşınır. Devam etmek istiyor musunuz?' : message}</p>
+    <h2>{'planNo' in record ? record.planNo : 'orderNo' in record ? record.orderNo : record.productionNo}</h2><p>{kind === 'productionOrder' ? 'Sipariş ve bütün üretim aşamaları birlikte taşınır. Devam etmek istiyor musunuz?' : kind === 'plan' ? 'Üretim planı, ürün kalemleri ve bütün aşama bilgileri birlikte taşınır. Devam etmek istiyor musunuz?' : message}</p>
     {operation === 'delete' && <p className="ws-hint">Kayıtlar kalıcı olarak silinmez. Stok ve cari geçmişi korunur.</p>}
     {operation === 'delete' && configured === undefined && !error && <p>Şifre bilgisi yükleniyor…</p>}
     <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>

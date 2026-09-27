@@ -1,3 +1,5 @@
+import { CustomerOrders } from '../production/CustomerOrders';
+import { INTERNAL_CUSTOMER_ID } from '../../domain/productionPlan';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { contactRepository } from '../../data/contacts';
@@ -24,7 +26,8 @@ export function ContactsPage({ customersOnly = false }: { customersOnly?: boolea
     let active = true;
     async function load() {
       try {
-        const records = await contactRepository.list();
+        const saved = await contactRepository.list();
+        const records: Contact[] = [...saved, { ...emptyContact, id: INTERNAL_CUSTOMER_ID, name: 'ARGENT', roles: ['Hazır Giyim Müşterisi'], createdAt: '', updatedAt: '' }];
         if (active) setState({ status: 'ready', records });
       } catch (error) {
         if (active) setState({ status: 'error', message: error instanceof Error ? error.message : 'Kayıtlar yüklenemedi.' });
@@ -68,13 +71,13 @@ export function ContactsPage({ customersOnly = false }: { customersOnly?: boolea
   }
 
   const selected = state.status === 'ready' ? state.records.find((contact) => contact.id === id) : undefined;
-  const isForm = mode === 'yeni' || mode === 'duzenle';
+  const isForm = mode === 'yeni' || (mode === 'duzenle' && id !== INTERNAL_CUSTOMER_ID);
   const title = mode === 'yeni' ? 'Yeni Firma / Kişi' : mode === 'duzenle' ? 'Firma / Kişi Düzenle' : mode === 'detay' ? 'Firma / Kişi Detayı' : customersOnly ? 'Müşteriler' : 'Firma / Kişi Listesi';
   const filtered = state.status === 'ready' ? filterContacts(state.records, query, role) : [];
 
   return <div className="contacts-module">
     <div className="page-heading"><div><h1 id="contacts-heading" tabIndex={-1}>{title}</h1><p>{mode ? 'Firma / kişi bilgileri, roller ve fatura bilgileri.' : 'Firma ve kişilerinizi, iletişim bilgilerini ve rollerini yönetin.'}</p></div>
-      <div className="contact-actions">{mode ? <><button className="button contact-secondary" onClick={() => navigate()}>Listeye dön</button>{mode === 'detay' && selected && <button className="button" onClick={() => navigate('duzenle', selected.id)}>Düzenle</button>}</> : <button className="button" onClick={() => navigate('yeni')} disabled={state.status !== 'ready'}>Yeni Firma / Kişi</button>}</div>
+      <div className="contact-actions">{mode ? <><button className="button contact-secondary" onClick={() => navigate()}>Listeye dön</button>{mode === 'detay' && selected && selected.id !== INTERNAL_CUSTOMER_ID && <button className="button" onClick={() => navigate('duzenle', selected.id)}>Düzenle</button>}</> : <button className="button" onClick={() => navigate('yeni')} disabled={state.status !== 'ready'}>Yeni Firma / Kişi</button>}</div>
     </div>
     {notice && <p className="contact-notice" role="status">{notice}</p>}
     {state.status === 'loading' && <div className="table-panel feedback" role="status">Kayıtlar yükleniyor…</div>}
@@ -82,14 +85,14 @@ export function ContactsPage({ customersOnly = false }: { customersOnly?: boolea
     {state.status === 'ready' && <>
       {mode && mode !== 'yeni' && (!selected || !['duzenle', 'detay'].includes(mode)) ? <div className="table-panel feedback"><p>Kayıt veya ekran bulunamadı. Listeden bir kayıt seçin.</p><button className="button" onClick={() => navigate()}>Listeye dön</button></div>
         : isForm ? <ContactForm key={`${mode}-${id ?? ''}`} initial={selected ?? (customersOnly ? { ...emptyContact, roles: ['Hazır Giyim Müşterisi'] } : emptyContact)} onSave={save} onCancel={() => navigate()} />
-        : mode === 'detay' && selected ? <ContactDetails contact={selected} />
+        : mode === 'detay' && selected ? <><ContactDetails contact={selected} />{selected.roles.includes('Hazır Giyim Müşterisi') && <CustomerOrders key={selected.id} customer={selected} />}</>
         : <section className="table-panel" aria-label="Firma / kişi kayıtları">
           <div className="contact-toolbar"><div className="contact-field"><label htmlFor="contact-search">Ara</label><input id="contact-search" type="search" placeholder="Ad, yetkili, telefon veya e-posta" value={query} onChange={(event) => filter('ara', event.target.value)} /></div>
             <div className="contact-field"><label htmlFor="contact-role-filter">Rol</label><select id="contact-role-filter" disabled={customersOnly} value={role} onChange={(event) => filter('rol', event.target.value)}><option value="">Tüm roller</option>{contactRoles.map((item) => <option key={item}>{item}</option>)}</select></div>
             <span className="record-count" role="status">{filtered.length} / {state.records.length} kayıt</span>
           </div>
           <div className="table-scroll"><table className="contact-table"><caption className="sr-only">Firma / Kişi Listesi</caption><thead><tr>{['Firma / Kişi Adı', 'Yetkili', 'Telefon', 'Roller', 'Durum', 'İşlemler'].map((column) => <th key={column} scope="col">{column}</th>)}</tr></thead><tbody>
-            {filtered.map((contact) => <tr key={contact.id}><td><button className="contact-name" onClick={() => navigate('detay', contact.id)}>{contact.name}</button><span className="contact-type">{contact.type}</span></td><td>{contact.authorizedPerson || '—'}</td><td>{contact.phone || '—'}</td><td><div className="contact-tags">{contact.roles.map((item) => <span key={item}>{item}</span>)}</div></td><td><span className={`contact-status ${contact.status === 'Pasif' ? 'is-passive' : ''}`}>{contact.status}</span></td><td><div className="contact-row-actions"><button onClick={() => navigate('detay', contact.id)} aria-label={`${contact.name} detayını aç`}>Detay</button><button onClick={() => navigate('duzenle', contact.id)} aria-label={`${contact.name} kaydını düzenle`}>Düzenle</button></div></td></tr>)}
+            {filtered.map((contact) => <tr key={contact.id}><td><button className="contact-name" onClick={() => navigate('detay', contact.id)}>{contact.name}</button><span className="contact-type">{contact.type}</span></td><td>{contact.authorizedPerson || '—'}</td><td>{contact.phone || '—'}</td><td><div className="contact-tags">{contact.roles.map((item) => <span key={item}>{item}</span>)}</div></td><td><span className={`contact-status ${contact.status === 'Pasif' ? 'is-passive' : ''}`}>{contact.status}</span></td><td><div className="contact-row-actions"><button onClick={() => navigate('detay', contact.id)} aria-label={`${contact.name} detayını aç`}>Detay</button>{contact.id !== INTERNAL_CUSTOMER_ID && <button onClick={() => navigate('duzenle', contact.id)} aria-label={`${contact.name} kaydını düzenle`}>Düzenle</button>}</div></td></tr>)}
             {!filtered.length && <tr><td colSpan={6}><div className="empty-state"><span className="empty-icon"><Icon name="people" size={26} /></span><h3>{state.records.length ? 'Aramanıza uygun kayıt bulunamadı' : 'Henüz firma / kişi kaydı yok'}</h3><p>{state.records.length ? 'Arama metnini veya rol filtresini değiştirebilirsiniz.' : 'Yeni Firma / Kişi butonuyla ilk kaydınızı oluşturabilirsiniz.'}</p></div></td></tr>}
           </tbody></table></div>
         </section>}

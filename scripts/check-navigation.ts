@@ -5,7 +5,7 @@ assert.equal(navigation.length, 6, 'Altı ana modül bulunmalı');
 assert.equal(pages.length, 22, 'Üretim menüsü üç temel ekrana indirilmeli');
 assert.equal(new Set(pages.map((page) => page.path)).size, pages.length, 'Yollar benzersiz olmalı');
 assert.equal(new Set(pages.map((page) => page.id)).size, pages.length, 'Kimlikler benzersiz olmalı');
-assert.deepEqual(navigation.find((group) => group.title === 'Üretim')?.pages.map((page) => page.title), ['Üretim Planları', 'Arşiv', 'Çöp Kutusu']);
+assert.deepEqual(navigation.find((group) => group.title === 'Üretim')?.pages.map((page) => page.title), ['Üretim Siparişleri', 'Arşiv', 'Çöp Kutusu']);
 for (const page of pages) {
   assert.match(page.path, /^\/[a-z0-9/-]+$/);
   assert.ok(page.title && page.description && page.columns.length);

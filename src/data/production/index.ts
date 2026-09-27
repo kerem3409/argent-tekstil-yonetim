@@ -1,3 +1,4 @@
+import { createOrderRepository } from './orderRepository';
 import { productDefinitionRepository } from '../productDefinitions';
 import { contactRepository } from '../contacts';
 import { browserLock } from '../shared/store';
@@ -10,3 +11,5 @@ export const planRepository = createPlanRepository(() => window.localStorage, { 
 export const workflowRepository = createWorkflowRepository(() => window.localStorage, { contacts: contactRepository, definitions: productDefinitionRepository, products: productRepository, fabrics: inventory.fabrics }, browserLock);
 export const productionRepository = createProductionRepository(() => window.localStorage, contactRepository, browserLock,
   async (jobId) => !!(await productRepository.load()).productionReceipts?.some((r) => r.jobId === jobId), productDefinitionRepository);
+
+export const orderRepository = createOrderRepository(() => window.localStorage, { contacts: contactRepository, definitions: productDefinitionRepository, products: productRepository }, browserLock);

@@ -18,9 +18,9 @@ export const navigation: NavigationGroup[] = [
     { id: 'equipment', title: 'Makine & Teçhizat', path: '/stok/makine-techizat', description: 'Atölyenin makine ve teçhizat kayıtlarını görüntüleyin.', columns: ['Makine Kodu', 'Makine Adı', 'Konum', 'Durum'] },
   ] },
   { title: 'Üretim', symbol: 'production', pages: [
-    { id: 'production-plans', title: 'Üretim Planları', path: '/uretim/planlar', description: 'Ürün kalemlerini planlamadan tamamlanana kadar aynı planda takip edin.', columns: ['Plan No', 'Plan Adı', 'Müşteri', 'Termin', 'Durum'] },
-    { id: 'production-archives', title: 'Arşiv', path: '/uretim/arsivler', description: 'Arşivlenen üretim planlarını görüntüleyin ve geri alın.', columns: ['Plan No', 'Plan Adı', 'Termin'] },
-    { id: 'production-trash', title: 'Çöp Kutusu', path: '/uretim/cop-kutusu', description: 'Üretim planlarını bağlı aşamalarıyla birlikte geri yükleyin.', columns: ['Plan No', 'Plan Adı', 'İşlem'] },
+    { id: 'production-orders', title: 'Üretim Siparişleri', path: '/uretim/siparisler', description: 'Her siparişin üretimini aynı kayıtta takip edin.', columns: ['Sipariş No', 'Sipariş Adı', 'Müşteri', 'Termin', 'Durum'] },
+    { id: 'production-archives', title: 'Arşiv', path: '/uretim/arsivler', description: 'Arşivlenen siparişleri görüntüleyin ve geri alın.', columns: ['Sipariş No', 'Sipariş Adı', 'Termin'] },
+    { id: 'production-trash', title: 'Çöp Kutusu', path: '/uretim/cop-kutusu', description: 'Siparişleri bağlı aşamalarıyla birlikte geri yükleyin.', columns: ['Sipariş No', 'Sipariş Adı', 'İşlem'] },
   ] },
   { title: 'Satışlar', symbol: 'sales', pages: [
     { id: 'sales', title: 'Satış Listesi', path: '/satislar', description: 'Satış kayıtlarını bu alanda görüntüleyin.', columns: ['Satış No', 'Müşteri', 'Tarih', 'Durum'] },
