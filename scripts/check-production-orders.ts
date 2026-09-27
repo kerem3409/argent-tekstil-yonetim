@@ -130,3 +130,60 @@ test('Canlı üretim: farklı müşteriler tek ürün, bir sipariş tek sütun v
   const groups = liveGroups([a, b, waiting, { ...a, id: 'archived', archived: true }, { ...b, id: 'deleted', deleted: true }, { ...a, id: 'stocked', product: { ...a.product, stockTransfer: { stockIds: [], date: input.date } } }]);
   assert.equal(groups.length, 1); assert.equal(groups[0].total, 1610); assert.deepEqual(groups[0].stages, { Kesim: 800, Nakış: 810 }); assert.equal(groups[0].rows.length, 2); assert.equal(Object.values(groups[0].stages).reduce((a, b) => a + b, 0), groups[0].total);
 });
+
+test('Özellik düzenleme üretim/stok verisini korur; eski alanlar, revizyon ve arşiv güvenlidir', async () => {
+  const { repo, input, values } = await fixture(); let o = await repo.create(input);
+  assert.equal(o.product.dropShoulder, undefined);
+  const plans = activeStages(o.product).map((type) => ({ type, companyId: type, plannedStart: input.date, dueDate: input.dueDate }));
+  o = await repo.savePlanning(o.id, o.revision, plans);
+  for (const type of activeStages(o.product)) {
+    o = await repo.beginPlannedStage(o.id, o.revision, type);
+    o = await repo.recordStageResult(o.id, o.revision, type, [{ color: 'Siyah', quantity: 490 }, { color: 'Beyaz', quantity: 290 }], []);
+  }
+  await repo.transfer(o.id, o.revision); o = (await repo.list())[0]; const before = structuredClone(o);
+  o = await repo.updateFeatures(o.id, o.revision, { dropShoulder: true, sideSlit: false, instructions: ['Yeni talimat', 'Etiket'] });
+  assert.deepEqual(o.product.stages, before.product.stages); assert.deepEqual(o.product.stockTransfer, before.product.stockTransfer);
+  assert.deepEqual(o.stagePlans, before.stagePlans); assert.deepEqual(o.product.colors, before.product.colors); assert.equal(o.stockSourceId, before.stockSourceId);
+  assert.deepEqual((await repo.list())[0].product.instructions, ['Yeni talimat', 'Etiket']);
+  const raw = values.get('argent-tekstil.production.v1');
+  await assert.rejects(repo.updateFeatures(o.id, before.revision, { dropShoulder: false, sideSlit: true, instructions: [] }), /değişti/);
+  await assert.rejects(repo.updateFeatures(o.id, o.revision, { dropShoulder: false, sideSlit: true, instructions: ['x'.repeat(2001)] }));
+  assert.equal(values.get('argent-tekstil.production.v1'), raw);
+  o = await repo.setArchived(o.id, o.revision, true);
+  await assert.rejects(repo.updateFeatures(o.id, o.revision, { dropShoulder: false, sideSlit: true, instructions: [] }), /geri alın/);
+});
+
+test('Aktif toplu işlemler atomiktir; aşamalar korunur ve çöp eski arşiv durumuna döner', async () => {
+  const { repo, input, values } = await fixture(); const orders = [];
+  for (let i = 0; i < 3; i++) {
+    let o = await repo.create(input);
+    o = await repo.savePlanning(o.id, o.revision, [{ type: 'Kesim', companyId: 'Kesim', plannedStart: input.date, dueDate: input.dueDate }]);
+    orders.push(await repo.beginPlannedStage(o.id, o.revision, 'Kesim'));
+  }
+  const before = values.get('argent-tekstil.production.v1');
+  await assert.rejects(repo.bulkArchiveAction([orders[0], { ...orders[1], revision: 0 }], 'archive', '', 'active'));
+  assert.equal(values.get('argent-tekstil.production.v1'), before);
+  await repo.bulkArchiveAction(orders, 'archive', '', 'active');
+  let current = await repo.list(); assert.ok(current.every((o) => o.archived));
+  for (const o of current) { const original = orders.find((v) => v.id === o.id)!; assert.deepEqual(o.product, original.product); assert.deepEqual(o.stagePlans, original.stagePlans); }
+  await repo.bulkArchiveAction(current, 'restore'); current = await repo.list();
+  await repo.deletionPin.setup('123456', '123456'); const priorTrash = values.get('argent-tekstil.production.v1');
+  await assert.rejects(repo.bulkArchiveAction(current.slice(0, 2), 'trash', '000000', 'active'));
+  assert.equal(values.get('argent-tekstil.production.v1'), priorTrash);
+  await repo.bulkArchiveAction(current.slice(0, 2), 'trash', '123456', 'active');
+  current = await repo.list(); assert.equal(current.filter((o) => o.deleted).length, 2);
+  for (const o of current.filter((v) => v.deleted)) { const restored = await repo.restore(o.id, o.revision); assert.equal(restored.archived, false); assert.deepEqual(restored.product, orders.find((v) => v.id === o.id)!.product); }
+});
+
+test('Eski planın özellikleri düzenlenirken ham plan ve diğer alanlar değişmez', async () => {
+  const { repo, old, input, values } = await fixture();
+  const plan = await old.create({ ...input, items: [{ ...input.product, brand: 'PALO' }] });
+  const raw = JSON.parse(values.get('argent-tekstil.production.v1')!);
+  let order = (await repo.list()).find((o) => o.source?.planId === plan.id)!;
+  assert.deepEqual(order.product.instructions, input.product.instructions);
+  order = await repo.updateFeatures(order.id, order.revision, { dropShoulder: false, sideSlit: true, instructions: [...order.product.instructions, 'Yeni madde'] });
+  const after = JSON.parse(values.get('argent-tekstil.production.v1')!);
+  assert.deepEqual(after.unifiedPlans, raw.unifiedPlans);
+  assert.deepEqual(order.product.instructions, ['Etiket', 'Ribana', 'Yeni madde']);
+  assert.deepEqual((await repo.list()).find((o) => o.id === order.id)?.product, order.product);
+});

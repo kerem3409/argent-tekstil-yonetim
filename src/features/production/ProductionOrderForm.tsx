@@ -65,4 +65,4 @@ export function ProductionOrderForm({ initial, draft, customerId: presetCustomer
   </div>;
 }
 
-function YesNo({ label, value, onChange }: { label: string; value: boolean; onChange: (value: boolean) => void }) { return <div className="compact-choice" role="group" aria-label={label}><span>{label}:</span>{['Var', 'Yok'].map((v) => <button type="button" className="button ws-secondary" key={v} aria-pressed={value === (v === 'Var')} onClick={() => onChange(v === 'Var')}>{v}</button>)}</div>; }
+export function YesNo({ label, value, onChange }: { label: string; value: boolean; onChange: (value: boolean) => void }) { return <div className="compact-choice" role="group" aria-label={label}><span>{label}:</span>{['Var', 'Yok'].map((v) => <button type="button" className="button ws-secondary" key={v} aria-pressed={value === (v === 'Var')} onClick={() => onChange(v === 'Var')}>{v}</button>)}</div>; }

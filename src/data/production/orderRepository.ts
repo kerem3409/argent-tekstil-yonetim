@@ -91,12 +91,28 @@ export function createOrderRepository(storage: () => StoragePort, deps: Dependen
         return save(data, o);
       });
     },
-    async bulkArchiveAction(selection: { id: string; revision: number }[], action: 'restore' | 'trash', pin = '') {
+    async updateFeatures(id: string, revision: number, features: { dropShoulder: boolean; sideSlit: boolean; instructions: string[] }) {
+      validateNotes(features.instructions);
+      if (typeof features.dropShoulder !== 'boolean' || typeof features.sideSlit !== 'boolean') throw new Error('Ürün özellikleri geçersiz.');
+      return store.transact(async (data) => {
+        const o = await find(data, id, revision);
+        // Technical instructions may change without touching production quantities or historical records.
+        o.product.dropShoulder = features.dropShoulder;
+        o.product.sideSlit = features.sideSlit;
+        o.product.instructions = [...features.instructions];
+        return save(data, o);
+      });
+    },
+    async bulkArchiveAction(selection: { id: string; revision: number }[], action: 'restore' | 'trash' | 'archive', pin = '', source: 'archive' | 'active' = 'archive') {
       if (!selection.length || new Set(selection.map((s) => s.id)).size !== selection.length) throw new Error('Kayıt seçin.');
       if (action === 'trash') await deletionPin.verify(pin);
       return store.transact(async (data) => { const selected = await Promise.all(selection.map((s) => find(data, s.id, s.revision, false)));
-        if (selected.some((o) => !o.archived || o.deleted)) throw new Error('Seçim değişti. Arşiv listesini yenileyin.');
-        for (const o of selected) { if (action === 'restore') { o.archived = false; o.archivedAt = null; } else { o.deleted = true; o.deletedAt = new Date().toISOString(); } save(data, o); }
+        if ((action === 'restore' && source !== 'archive') || (action === 'archive' && source !== 'active') || selected.some((o) => !!o.archived !== (source === 'archive') || o.deleted)) throw new Error('Seçim değişti. Listeyi yenileyin.');
+        for (const o of selected) {
+          if (action === 'trash') { o.deleted = true; o.deletedAt = new Date().toISOString(); }
+          else { o.archived = action === 'archive'; o.archivedAt = o.archived ? new Date().toISOString() : null; }
+          save(data, o);
+        }
       });
     },
     async startProduction(id: string, revision: number) { return store.transact(async (data) => { const o = await find(data, id, revision); editable(o); if (!o.productionStartedAt) o.productionStartedAt = new Date().toISOString(); return save(data, o); }); },
