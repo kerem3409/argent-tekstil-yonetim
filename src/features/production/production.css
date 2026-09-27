@@ -136,4 +136,15 @@
 @media(max-width:600px) { .stage-plan-fields { grid-template-columns: minmax(0, 1fr); } }
 .order-date-stack { display: grid; gap: 12px; grid-column: 1 / -1; max-width: 420px; }
 .stage-plan-row { padding: 12px 0; border-bottom: 1px solid #dce2ea; }
+.product-feature-choices { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 32px; }
+.product-feature-choices .compact-choice { margin-bottom: 0; }
+.plan-stage > summary { cursor: pointer; list-style: none; }
+.plan-stage > summary::-webkit-details-marker { display: none; }
+.plan-stage > summary:focus-visible { outline: 2px solid #577ca7; outline-offset: 4px; }
+.stage-expand-label, .stage-collapse-label { display: inline-block; color: #244b73; font-weight: 600; margin: 8px 0; text-decoration: underline; }
+.plan-stage[open] > summary .stage-expand-label, .plan-stage:not([open]) > summary .stage-collapse-label { display: none; }
+.stage-completed-quantity { font-weight: 700; }
+.plan-status-panel .plan-process li:has(.stage-completed-quantity) { flex-direction: row; align-items: baseline; }
+.plan-status-panel .stage-completed-quantity { margin-left: auto; }
+.sheet-quantity-table tbody tr:last-child { font-weight: 700; }
 .ws-table a.production-detail-link { display: inline-flex; align-items: center; justify-content: center; color: #28486f; background: #edf2f7; font-size: 12px; min-width: 64px; min-height: 32px; opacity: 1; white-space: nowrap; }

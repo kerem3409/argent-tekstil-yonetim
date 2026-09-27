@@ -40,9 +40,9 @@ export function OrderStages({ order, contacts, done }: { order: ProductionOrder;
   const p = order.product, closed = order.archived || order.deleted || p.legacy?.readOnly;
   return <Section title="Üretim Aşamaları">{activeStages(p).map((type) => {
     const record = stageRecord(p, type), plan = stagePlan(order, type), source = stageInput(p, type);
-    return <section className="plan-stage" key={type}><h3>{type} {record?.result ? '✓ Tamamlandı' : record ? '· İşlemde' : '· Bekliyor'}</h3>
-      <p>Firma: {companyName(contacts, record?.companyId ?? plan?.companyId ?? '')} · Planlanan Başlangıç: {plan?.plannedStart || '—'} · Termin: {plan?.dueDate || '—'} {plan?.dueDate && `(${deadlineText(plan.dueDate)})`}</p>
+    return <details className="plan-stage" key={type} open={!record?.result}><summary><h3>{type} {record?.result ? '✓ Tamamlandı' : record ? '· İşlemde' : '· Bekliyor'}</h3>
+      <p>Firma: {companyName(contacts, record?.companyId ?? plan?.companyId ?? '')} · Planlanan Başlangıç: {plan?.plannedStart || '—'} · Termin: {plan?.dueDate || '—'} {plan?.dueDate && `(${deadlineText(plan.dueDate)})`}</p><span className="stage-expand-label">Detayları Aç</span><span className="stage-collapse-label">Detayları Kapat</span></summary>
       {record && !closed ? <StageEditor key={`${order.id}:${order.revision}:${type}`} order={order} type={type} done={done} /> : record?.result ? <Table headers={['Renk', 'Başlangıç', resultLabel(type), 'Fire / Fark']} rows={[...record.result.rows.map((r) => { const initial = source.find((v) => colorKey(v.color) === colorKey(r.color))?.quantity ?? 0; return [r.color, initial, r.quantity, differenceText(initial, r.quantity)]; }), ['TOPLAM', source.reduce((n, r) => n + r.quantity, 0), record.result.rows.reduce((n, r) => n + r.quantity, 0), differenceText(source.reduce((n, r) => n + r.quantity, 0), record.result.rows.reduce((n, r) => n + r.quantity, 0))]]} /> : !closed && stageAvailable(p, type) && plan ? <Action run={() => orderRepository.beginPlannedStage(order.id, order.revision, type)} done={done}>{startLabel(type)}</Action> : <p>{closed ? 'Bu kayıt salt okunur.' : !plan ? 'Önce firma ve tarih planını kaydedin.' : 'Önce önceki aşamanın sonucunu kaydedin.'}</p>}
-    </section>;
+    </details>;
   })}</Section>;
 }
