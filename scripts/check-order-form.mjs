@@ -348,10 +348,22 @@ test('Üretim siparişleri: gerçek formlar, tek detay, çıktılar ve yaşam d�
         await contactRepository.update(firm.id, { ...firm, name: 'Güncel Kesim Firması' });
       });
       await waitFor(() => tracking()?.textContent.includes('510 (+10)') && body().includes('Güncel Kesim Firması'));
-      await waitFor(() => !!document.querySelector('.sample-thumbnail') && document.querySelector('.general-costs')?.textContent.includes('5.000,00 TL'));
-      assert.ok(document.querySelector('.quantity-dates').textContent.includes('2026-10-04'));
+      await waitFor(() => !!document.querySelector('.sample-thumbnail') && document.querySelector('.general-costs')?.textContent.includes('4.900,00 TL'));
+      assert.ok(document.querySelector('.quantity-assignment-pairs').textContent.includes('04.10.2026'));
       assert.ok(tracking().textContent.includes('Genel Fark: +10'));
       assert.equal(document.querySelectorAll('.order-quantity-tracking table').length, 1);
+      for (const removed of ['Planlama ve üretim işlemleri', 'Stok / Kullanılan Malzemeler', 'Hareket Geçmişi']) assert.ok(!body().includes(removed));
+      assert.deepEqual([...document.querySelectorAll('.general-costs th')].slice(0,3).map((n) => n.textContent), ['Maliyet Kalemi', 'Birim Maliyet', 'Toplam Maliyet']);
+      const printed = []; window.print = () => printed.push(document.documentElement.dataset.generalSheetPrintCosts);
+      await click(button('Yazdır / PDF'));
+      assert.equal([...document.querySelectorAll('input[name=printCosts]')][0].checked, true);
+      await click(button('Çıktıyı Aç')); assert.deepEqual(printed, ['no']);
+      assert.equal(document.documentElement.dataset.generalSheetPrintCosts, undefined);
+      await click(button('Yazdır / PDF')); await click([...document.querySelectorAll('input[name=printCosts]')][1]);
+      await click(button('Çıktıyı Aç')); assert.deepEqual(printed, ['no', 'yes']);
+      assert.equal(document.documentElement.dataset.generalSheetPrintCosts, undefined);
+      await click(button('Yazdır / PDF')); assert.equal([...document.querySelectorAll('input[name=printCosts]')][0].checked, true);
+      await click(button('Vazgeç'));
     });
     await t.test('Detay accordionları ve maliyet fiyatı yeniden açıldığında kalıcıdır', async () => {
       const o = await createOrder();
@@ -362,7 +374,7 @@ test('Üretim siparişleri: gerçek formlar, tek detay, çıktılar ve yaşam d�
       await fill(document.querySelector('[aria-label="Kumaş Birim Fiyatı"]'), '100'); await click(button('Maliyetleri Kaydet'));
       assert.equal((await orderRepository.list())[0].costPricesMinor.Kumaş, 10000);
       await navigate('/uretim/siparisler'); await navigate(`/uretim/siparisler?id=${o.id}&print=Genel`); await waitFor(() => !!document.querySelector('[aria-label="Kumaş Birim Fiyatı"]'));
-      assert.equal(document.querySelector('[aria-label="Kumaş Birim Fiyatı"]').value, '100'); assert.ok(body().includes('Henüz hesaplanamadı'));
+      assert.equal(document.querySelector('[aria-label="Kumaş Birim Fiyatı"]').value, '100'); assert.ok(body().includes('henüz hesaplanamadı'));
       assert.ok(!body().includes('Üretim Özeti')); assert.ok(body().includes('Nakış / Baskı yok'));
       await fill(field('Kumaş Tahmini Tutar (TL)'), '5000'); await click(button('Föy Maliyetlerini Kaydet'));
       assert.equal((await orderRepository.list())[0].sheetCosts.estimated.Kumaş, 500000);

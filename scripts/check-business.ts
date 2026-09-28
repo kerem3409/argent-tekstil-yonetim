@@ -14,6 +14,7 @@ import { filterLiveOrders, operationDate } from '../src/domain/productionPlannin
 import { costSources, automaticCostSources, generalSheetCosts } from '../src/domain/generalSheetCosts.ts';
 import type { CostSourceData } from '../src/domain/generalSheetCosts';
 import { stageGroups } from '../src/domain/productionPresentation.ts';
+import { generalSheetOrderCosts } from '../src/domain/generalSheetOrderCosts.ts';
 
 async function setup(costData?: CostSourceData) {
   const values = new Map<string, string>(); let failNetwork = false;
@@ -27,6 +28,25 @@ async function setup(costData?: CostSourceData) {
   const input = { name: 'Polo sipariş', customerId: customer.id, date: operationDate(), dueDate: operationDate(), customerReference: '', customerNote: '', note: '', product: { productDefinitionId: 'Polo', modelName: 'Basic Polo 01', brandId: brand.id, fabricName: 'Pike', gsm: '220', fabricProperties: '', colors: [{ color: 'Siyah', quantity: 100 }], instructions: ['Etiket'], sizeSeries: 'Yetişkin' as const, sizeDistribution: defaultSizeDistribution('Yetişkin'), enabledStages: ['Kesim', 'Dikim', 'Ütü & Paket'] as ('Kesim' | 'Dikim' | 'Ütü & Paket')[], materials: [], embroidery: emptyEmbroidery(), printing: emptyEmbroidery(), packaging: emptyPackaging() } };
   return { values, storage, contacts, supplier, customer, products, orders, input, fail: (v: boolean) => { failNetwork = v; } };
 }
+
+test('Genel Föy sipariş bazlı maliyet: 60 TL × 1500, kaynak kayıtları ve gerçekleşen hesap korunur', async () => {
+  const f = await setup(); let o = await f.orders.create({ ...f.input, product: { ...f.input.product, colors: [{ color: 'Siyah', quantity: 1500 }] } });
+  o = await f.orders.saveCosts(o.id, o.revision, { Kumaş: 10000, Kesim: 200, Dikim: 300 });
+  o = await f.orders.savePlanning(o.id, o.revision, [{ type: 'Kesim', companyId: f.supplier.id, plannedStart: o.date, dueDate: o.dueDate }]);
+  o = await f.orders.beginPlannedStage(o.id, o.revision, 'Kesim');
+  o = await f.orders.recordStageResult(o.id, o.revision, 'Kesim', [{ color: 'Siyah', quantity: 1000, kg: 600 }], []);
+  const before = JSON.stringify(o), actual = productionCosts(o).total;
+  const result = generalSheetOrderCosts(o, []);
+  assert.equal(result.rows[0].unit, 6000); assert.equal(result.rows[0].total, 9000000);
+  assert.equal(result.rows.find((r) => r.name === 'Kesim')?.total, 300000);
+  assert.equal(result.unit, 6500); assert.equal(result.total, 9750000);
+  assert.equal(JSON.stringify(o), before); assert.equal(productionCosts(o).total, actual);
+  const source = { id: 'cut', category: 'Kesim' as const, description: '', date: o.date, total: 400000, quantity: 1000, unit: 'adet', href: '', operation: 'Kesim' };
+  const linked = generalSheetOrderCosts({ ...o, sheetCosts: { estimated: {}, sources: ['cut'] } }, [source]);
+  assert.equal(linked.rows.find((r) => r.name === 'Kesim')?.unit, 400);
+  assert.equal(linked.rows.find((r) => r.name === 'Kesim')?.total, 600000);
+  assert.ok(!JSON.stringify(generalSheetOrderCosts({ ...o, product: { ...o.product, colors: [] } }, [])).includes('Infinity'));
+});
 
 test('Manuel sipariş no benzersizdir; otomatik sayaç manuel numarayı atlar, arşiv numarasını yeniden kullanmaz', async () => {
   const f = await setup();

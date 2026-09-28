@@ -6,7 +6,7 @@ import type { ProductionOrder } from '../../domain/productionOrder';
 import type { Contact } from '../contacts/model';
 import { Section, companyName } from '../shared/WorkshopUI';
 
-export function QuantityTracking({ order, contacts = [] }: { order: ProductionOrder; contacts?: Contact[] }) {
+export function QuantityTracking({ order, contacts = [], pairedAssignments = false }: { order: ProductionOrder; contacts?: Contact[]; pairedAssignments?: boolean }) {
   const p = order.product;
   const groups: { name: string; types: PlanStage[] }[] = [{ name: 'Kesim', types: ['Kesim'] }, { name: 'Uygulama', types: (['Nakış', 'Baskı'] as PlanStage[]).filter((s) => p.enabledStages.includes(s)) }, { name: 'Dikim', types: ['Dikim'] }, { name: 'Ütü Paket', types: ['Ütü & Paket'] }];
   const results = groups.map((g) => groupResult(p, g.types)), latest = [...results].reverse().find(Boolean);
@@ -25,8 +25,12 @@ export function QuantityTracking({ order, contacts = [] }: { order: ProductionOr
     const same = date && values.every((v) => v.value === values[0].value);
     return <li key={g.name}><strong>{g.name}:</strong> {same ? <span className="quantity-date-value">{values[0].value}</span> : values.map((v, i) => <span key={v.type}>{i > 0 && ' / '}{values.length > 1 && `${v.type}: `}<span className={date ? 'quantity-date-value' : undefined}>{v.value}</span></span>)}</li>;
   })}</ul>;
+  const paired = <div className="quantity-assignment-pairs" role="list">{groups.flatMap((g) => g.types.map((type) => {
+    const plan = stagePlan(order, type), date = plan?.dueDate;
+    return <div className="quantity-assignment-pair" role="listitem" key={type}><span><strong>{g.name}{g.types.length > 1 ? ` (${type})` : ''}</strong><span>{companyName(contacts, plan?.companyId || stageRecord(p, type)?.companyId || '')}</span></span><time dateTime={date}>{date ? date.split('-').reverse().join('.') : '—'}</time></div>;
+  }))}</div>;
   return <div className="order-quantity-tracking"><Section title="Adet Tablosu"><div className="table-scroll"><table className="ws-table quantity-sheet-table"><caption className="sr-only">Üretim adetleri, firmalar ve terminler</caption><thead><tr>{['Renkler', 'Sipariş', ...groups.map((g) => g.name), 'Firma', 'Termin'].map((h) => <th key={h} scope="col">{h}</th>)}</tr></thead><tbody>
-    {p.colors.map((r, i) => <tr key={r.color}><td>{r.color}</td><td>{r.quantity}</td>{groups.map((g, n) => <td key={g.name}>{cell(n, r.color)}</td>)}{i === 0 && <><td rowSpan={p.colors.length} className="quantity-firms">{assignment(false)}</td><td rowSpan={p.colors.length} className="quantity-dates">{assignment(true)}</td></>}</tr>)}
+    {p.colors.map((r, i) => <tr key={r.color}><td>{r.color}</td><td>{r.quantity}</td>{groups.map((g, n) => <td key={g.name}>{cell(n, r.color)}</td>)}{i === 0 && (pairedAssignments ? <td colSpan={2} rowSpan={p.colors.length} className="quantity-paired-cell">{paired}</td> : <><td rowSpan={p.colors.length} className="quantity-firms">{assignment(false)}</td><td rowSpan={p.colors.length} className="quantity-dates">{assignment(true)}</td></>)}</tr>)}
     <tr className="quantity-total"><td>TOPLAM</td><td>{requested}</td>{groups.map((g,n) => <td key={g.name}>{cell(n)}</td>)}<td colSpan={2} /></tr>
   </tbody></table></div><p className="quantity-totals">Toplam Sipariş: <strong>{requested}</strong> · Tamamlanan Sağlam Ürün: <strong>{completed ?? '—'}</strong> · Genel Fark: <strong>{completed === undefined ? '—' : `${completed - requested > 0 ? '+' : ''}${completed - requested}`}</strong></p></Section></div>;
 }

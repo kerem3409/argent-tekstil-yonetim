@@ -233,6 +233,23 @@
 .order-quantity-tracking .quantity-sheet-table { table-layout: fixed; min-width: 700px; }
 .quantity-sheet-table th:nth-child(7), .quantity-sheet-table th:nth-child(8) { width: 20%; }
 .quantity-date-value { white-space: nowrap; }
+.quantity-sheet-table td.quantity-paired-cell { padding: 0; vertical-align: top; }
+.quantity-assignment-pair { display: grid; grid-template-columns: 5fr 3fr; align-items: stretch; text-align: left; line-height: 1.3; }
+.general-order-sheet .quantity-sheet-table th:nth-child(7) { width: 25%; }
+.general-order-sheet .quantity-sheet-table th:nth-child(8) { width: 15%; }
+.quantity-assignment-pair + .quantity-assignment-pair { border-top: 1px solid #dce2ea; }
+.quantity-assignment-pair > span, .quantity-assignment-pair > time { padding: 5px 8px; }
+.quantity-assignment-pair strong::after { content: ': '; }
+.quantity-assignment-pair > time { display: flex; align-items: center; border-left: 1px solid #dce2ea; white-space: nowrap; }
+.print-cost-choice { display: inline-flex; align-items: center; gap: 6px; margin: 12px 18px 12px 0; }
+.print-cost-choice input { width: auto; }
+@media print {
+  html:not([data-general-sheet-print-costs="yes"]) .general-order-sheet .general-costs { display: none !important; }
+  .record-dialog-backdrop { display: none !important; }
+  .general-order-sheet .quantity-assignment-pair > span, .general-order-sheet .quantity-assignment-pair > time { padding: 1mm; }
+  .general-order-sheet .quantity-sheet-table td.quantity-paired-cell { padding: 0; }
+  .general-order-sheet .quantity-assignment-pair { font-size: 9pt; }
+}
 .order-quantity-tracking .quantity-sheet-table td { vertical-align: middle; }
 .order-quantity-tracking .quantity-sheet-table .quantity-firms, .order-quantity-tracking .quantity-sheet-table .quantity-dates { text-align: left; vertical-align: top; }
 .quantity-assignments { list-style: none; margin: 0; padding: 0; font-size: 11px; line-height: 1.45; }
