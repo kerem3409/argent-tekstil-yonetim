@@ -160,3 +160,26 @@
 @media(max-width:900px) { .plan-status-panel { max-height: none; overflow: visible; } }
 @media(max-width:700px) { .order-colors-compact { width: 100%; min-width: 0; } }
 .ws-table a.production-detail-link { display: inline-flex; align-items: center; justify-content: center; color: #28486f; background: #edf2f7; font-size: 12px; min-width: 64px; min-height: 32px; opacity: 1; white-space: nowrap; }
+.production-row-actions, .production-row-actions > .record-actions { display: inline-flex; flex-wrap: nowrap; align-items: center; gap: 6px; }
+.production-row-actions .button { white-space: nowrap; padding: 7px 10px; min-height: 32px; font-size: 12px; }
+.production-row-actions .general-sheet-link { color: #fff; background: #19334f; }
+.production-row-actions .record-actions > button:last-of-type { color: #9b2525; border-color: #e5bcbc; }
+.general-order-sheet { max-width: 1180px; margin: 0 auto; }
+.general-order-sheet > h1 { font-size: 22px; margin-bottom: 16px; }
+.general-order-sheet .production-summary { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.general-order-sheet .ws-card { margin-bottom: 16px; }
+.general-order-sheet summary { cursor: pointer; }
+.general-order-sheet .ws-table, .general-costs .ws-table { min-width: 580px; }
+.general-order-sheet input[type=number] { max-width: 140px; }
+.cost-source-list { display: grid; gap: 8px; max-height: 260px; overflow: auto; margin: 12px 0; }
+.cost-source-list input { width: auto; }
+.stage-operation + .stage-operation { border-top: 1px solid #dce2ea; margin-top: 16px; padding-top: 12px; }
+.decoration-info { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+@media(max-width:700px) { .production-row-actions, .production-row-actions > .record-actions { flex-wrap: wrap; } .production-row-actions { min-width: 200px; } }
+@media print { .general-order-sheet details > .production-disclosure-body { display: block !important; } .general-order-sheet details { break-inside: auto; } .general-order-sheet a { color: inherit; text-decoration: none; } }
+
+.general-order-sheet.production-paper { max-width: 1180px; padding: 0; border: 0; background: transparent; }
+.general-order-sheet.production-paper .table-scroll { overflow-x: auto; }
+@media print { .general-order-sheet.production-paper { max-width: none; } .general-order-sheet .ws-table { min-width: 0; } .general-order-sheet .table-scroll { overflow: visible; } }
+
+.general-order-sheet .ws-table td, .general-order-sheet .ws-table th { padding: 9px 10px; font-size: 12px; }

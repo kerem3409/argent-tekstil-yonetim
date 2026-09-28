@@ -1,6 +1,8 @@
+import { stageGroups } from '../../domain/productionPresentation';
+import { DecorationEditor } from './DecorationEditor';
 import { useRef, useState } from 'react';
 import { orderRepository } from '../../data/production';
-import { activeStages, colorKey, deadlineText, stageAvailable, stageInput, stageRecord } from '../../domain/productionPlan';
+import { colorKey, stageAvailable, stageInput, stageRecord } from '../../domain/productionPlan';
 import type { PlanStage } from '../../domain/productionPlan';
 import { differenceText } from '../../domain/productionOrder';
 import type { ProductionOrder } from '../../domain/productionOrder';
@@ -38,11 +40,10 @@ function StageEditor({ order, type, done }: { order: ProductionOrder; type: Plan
 
 export function OrderStages({ order, contacts, done }: { order: ProductionOrder; contacts: Contact[]; done: () => void }) {
   const p = order.product, closed = order.archived || order.deleted || p.legacy?.readOnly;
-  return <Section title="Üretim Aşamaları">{activeStages(p).map((type) => {
+  return <Section title="Üretim Aşamaları">{stageGroups(p).map((group) => <details className="plan-stage" key={group.name} open={!group.types.every((type) => stageRecord(p, type)?.result)}><summary><h3>{group.name} {group.types.every((type) => stageRecord(p, type)?.result) ? '✓ Tamamlandı' : '· Devam ediyor / Bekliyor'}</h3><p>{group.types.map((type) => { const plan = stagePlan(order, type); return `${type}: ${companyName(contacts, stageRecord(p, type)?.companyId ?? plan?.companyId ?? '')} · Başlangıç: ${plan?.plannedStart || '—'} · Termin: ${plan?.dueDate || '—'}`; }).join(' | ')}</p><span className="stage-expand-label">Detayları Aç</span><span className="stage-collapse-label">Detayları Kapat</span></summary>{group.name === 'Nakış / Baskı' && !closed && <DecorationEditor order={order} done={done} />}{group.types.map((type) => {
     const record = stageRecord(p, type), plan = stagePlan(order, type), source = stageInput(p, type);
-    return <details className="plan-stage" key={type} open={!record?.result}><summary><h3>{type} {record?.result ? '✓ Tamamlandı' : record ? '· İşlemde' : '· Bekliyor'}</h3>
-      <p>Firma: {companyName(contacts, record?.companyId ?? plan?.companyId ?? '')} · Planlanan Başlangıç: {plan?.plannedStart || '—'} · Termin: {plan?.dueDate || '—'} {plan?.dueDate && `(${deadlineText(plan.dueDate)})`}</p><span className="stage-expand-label">Detayları Aç</span><span className="stage-collapse-label">Detayları Kapat</span></summary>
+    return <div className="stage-operation" data-operation={type} key={type}>{group.types.length > 1 && <h4>{type}</h4>}
       {record && !closed ? <StageEditor key={`${order.id}:${order.revision}:${type}`} order={order} type={type} done={done} /> : record?.result ? <Table headers={['Renk', 'Başlangıç', resultLabel(type), 'Fire / Fark']} rows={[...record.result.rows.map((r) => { const initial = source.find((v) => colorKey(v.color) === colorKey(r.color))?.quantity ?? 0; return [r.color, initial, r.quantity, differenceText(initial, r.quantity)]; }), ['TOPLAM', source.reduce((n, r) => n + r.quantity, 0), record.result.rows.reduce((n, r) => n + r.quantity, 0), differenceText(source.reduce((n, r) => n + r.quantity, 0), record.result.rows.reduce((n, r) => n + r.quantity, 0))]]} /> : !closed && stageAvailable(p, type) && plan ? <Action run={() => orderRepository.beginPlannedStage(order.id, order.revision, type)} done={done}>{startLabel(type)}</Action> : <p>{closed ? 'Bu kayıt salt okunur.' : !plan ? 'Önce firma ve tarih planını kaydedin.' : 'Önce önceki aşamanın sonucunu kaydedin.'}</p>}
-    </details>;
-  })}</Section>;
+    </div>;
+  })}</details>)}</Section>;
 }

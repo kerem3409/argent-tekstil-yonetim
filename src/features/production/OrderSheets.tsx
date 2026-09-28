@@ -2,7 +2,7 @@ import { stagePlan } from '../../domain/productionPlanning';
 import type { Contact } from '../contacts/model';
 import { companyName } from '../shared/WorkshopUI';
 import { resultLabel } from './OrderStages';
-import { activeStages, colorKey, stageInput, stageRecord } from '../../domain/productionPlan';
+import { colorKey, stageInput, stageRecord } from '../../domain/productionPlan';
 import type { PlanStage } from '../../domain/productionPlan';
 import type { ProductionOrder } from '../../domain/productionOrder';
 import { Section, Table } from '../shared/WorkshopUI';
@@ -48,17 +48,4 @@ export function OrderTechnicalPrint({ order, type, customerName, contacts = [] }
     {stage && <><h2>{type} Teknik Notları</h2><ol>{stage.notes.map((s, i) => <li key={i}>{s}</li>)}</ol></>}
     {general && <><h2>Genel Notlar</h2><p>{order.customerNote}</p><p>{order.note}</p></>}
   </article>;
-}
-
-export function ProductionSummary({ order }: { order: ProductionOrder }) {
-  const p = order.product, stages = activeStages(p);
-  const total = (type: PlanStage) => stageRecord(p, type)?.result?.rows.reduce((n, r) => n + r.quantity, 0);
-  const requested = p.colors.reduce((n, r) => n + r.quantity, 0), complete = total(stages.at(-1)!);
-  const cell = (type: PlanStage, color?: string) => {
-    const result = stageRecord(p, type)?.result; if (!result) return '—';
-    const actual = color ? result.rows.find((r) => r.color === color)?.quantity ?? 0 : total(type)!;
-    const input = stageInput(p, type).filter((r) => !color || r.color === color).reduce((n, r) => n + r.quantity, 0);
-    return `${actual} (${actual > input ? `+${actual - input} adet` : `${input - actual} fire`})`;
-  };
-  return <Section title="Üretim Özeti"><Table headers={['Renk', 'Sipariş', ...stages.map((s) => `${s} / Fire`)]} rows={[...p.colors.map((r) => [r.color, r.quantity, ...stages.map((s) => cell(s, r.color))]), ['TOPLAM', requested, ...stages.map((s) => cell(s))]]} /><p>Tamamlanan sağlam ürün: {complete ?? '—'}</p>{complete !== undefined && <p>{complete > requested ? `Siparişten fazla: +${complete - requested} adet` : `Toplam eksik: ${requested - complete}`}</p>}</Section>;
 }

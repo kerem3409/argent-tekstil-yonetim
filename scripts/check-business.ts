@@ -11,15 +11,18 @@ import { emptyEmbroidery, emptyPackaging } from '../src/domain/productionOrder.t
 import { defaultSizeDistribution } from '../src/domain/productionWorkflow.ts';
 import { costMoney, productionCosts } from '../src/domain/productionCosts.ts';
 import { filterLiveOrders, operationDate } from '../src/domain/productionPlanning.ts';
+import { costSources, automaticCostSources, generalSheetCosts } from '../src/domain/generalSheetCosts.ts';
+import type { CostSourceData } from '../src/domain/generalSheetCosts';
+import { stageGroups } from '../src/domain/productionPresentation.ts';
 
-async function setup() {
+async function setup(costData?: CostSourceData) {
   const values = new Map<string, string>(); let failNetwork = false;
   const storage = () => ({ getItem: (k: string) => values.get(k) ?? null, setItem: (k: string, v: string) => { if (k === NETWORK_KEY && failNetwork) throw Error('disk full'); values.set(k, v); } });
   const contacts = createLocalStorageContactRepository(storage);
   const supplier = await contacts.create({ ...emptyContact, name: 'Test Tedarikçi', roles: ['Hazır Giyim Tedarikçisi', 'Fasoncu'], services: ['Kesim', 'Nakış', 'Baskı', 'Dikim', 'Ütü & Paket'] });
   const customer = await contacts.create({ ...emptyContact, name: 'Test Müşteri', roles: ['Hazır Giyim Müşterisi'] });
   const products = createProductRepository(storage, contacts);
-  const orders = createOrderRepository(storage, { contacts, products, definitions: { async requireActive(id: string) { return { id, name: id, status: 'Aktif' as const, note: '', createdAt: '', updatedAt: '' }; } } });
+  const orders = createOrderRepository(storage, { contacts, products, costData: costData ? async () => costData : undefined, definitions: { async requireActive(id: string) { return { id, name: id, status: 'Aktif' as const, note: '', createdAt: '', updatedAt: '' }; } } });
   const brand = await orders.createBrand('Palo');
   const input = { name: 'Polo sipariş', customerId: customer.id, date: operationDate(), dueDate: operationDate(), customerReference: '', customerNote: '', note: '', product: { productDefinitionId: 'Polo', modelName: 'Basic Polo 01', brandId: brand.id, fabricName: 'Pike', gsm: '220', fabricProperties: '', colors: [{ color: 'Siyah', quantity: 100 }], instructions: ['Etiket'], sizeSeries: 'Yetişkin' as const, sizeDistribution: defaultSizeDistribution('Yetişkin'), enabledStages: ['Kesim', 'Dikim', 'Ütü & Paket'] as ('Kesim' | 'Dikim' | 'Ütü & Paket')[], materials: [], embroidery: emptyEmbroidery(), printing: emptyEmbroidery(), packaging: emptyPackaging() } };
   return { values, storage, contacts, supplier, customer, products, orders, input, fail: (v: boolean) => { failNetwork = v; } };
@@ -101,4 +104,43 @@ test('Eski renk bazlı nakış/baskı notları sipariş düzenlenirken kaybolmaz
   assert.deepEqual(saved.product.embroidery.colorNotes, input.product.embroidery.colorNotes);
   assert.deepEqual(saved.product.printing?.colorNotes, input.product.printing.colorNotes);
   assert.equal(saved.product.colors[0].color, 'Beyaz');
+});
+
+test('Genel Föy: mevcut kumaş, malzeme, fason ve gider kaynakları tek kez hesaplanır ve fiyat güncellemesini izler', async () => {
+  const data: CostSourceData = { fabrics: { version: 1, records: [], movements: [] }, materials: { version: 1, records: [], movements: [] }, production: { version: 1, plans: [], jobs: [], stages: [], nextPlan: 1, nextJob: 1, nextStage: 1 }, finance: { version: 1, moneyMovements: [], manualDebts: [], expenses: [] } };
+  const f = await setup(data); let o = await f.orders.create(f.input);
+  data.fabrics.records.push({ id: 'fabric', name: 'Pike', companyId: '', date: o.date, note: '', account: 'Hayır', purchaseMinor: 1000000, active: true, grammage: '220', content: '', width: '', lot: '', priceMinor: 10000, colors: [] });
+  data.fabrics.movements.push({ id: 'cut-fabric', recordId: 'fabric', date: o.date, type: 'Çıkış', outgoing: 50, incoming: 0, balance: 50, description: 'Kesimde kullanılan' });
+  data.materials.records.push({ id: 'label', name: 'Etiket', category: 'Diğer', feature: '', quantity: 100, unit: 'Adet', priceMinor: 200, companyId: '', date: o.date, note: '', account: 'Hayır', purchaseMinor: 20000, active: true });
+  data.materials.movements.push({ id: 'labels', recordId: 'label', date: o.date, type: 'Çıkış', outgoing: 100, incoming: 0, balance: 0, description: 'Ürün etiketi' });
+  data.production.stages.push({ id: 'cutting', number: 'FS-001', jobId: o.stockSourceId, companyId: f.supplier.id, date: o.date, approvedDate: o.date, status: 'Tamamlandı', note: '', lines: [{ operation: 'Kesim', quantity: 100, returned: 100, priceType: 'Adet Fiyatı', priceMinor: 300 }] });
+  data.finance.expenses.push({ id: 'shipping', companyId: '', date: o.date, category: 'Diğer', description: 'Üretim nakliyesi', amountMinor: 10000, method: 'Nakit', note: '' });
+  o = await f.orders.saveCosts(o.id,o.revision,{Kumaş: 10000, Kesim: 99900});
+  o = await f.orders.savePlanning(o.id,o.revision,f.input.product.enabledStages.map((type) => ({ type, companyId:f.supplier.id,plannedStart:o.date,dueDate:o.dueDate })));
+  for (const type of f.input.product.enabledStages) { o=await f.orders.beginPlannedStage(o.id,o.revision,type); o=await f.orders.recordStageResult(o.id,o.revision,type,[{color:'Siyah',quantity:100,...(type==='Kesim'?{kg:50}:{})}],[]); }
+  const settings = { estimated: { Kumaş: 480000, Kesim: 25000 }, sources: ['fabric:cut-fabric','material:labels','expense:shipping'] };
+  o=await f.orders.saveSheetCosts(o.id,o.revision,settings);
+  let sources=costSources(data), c=generalSheetCosts(o,sources,automaticCostSources(o,data,sources));
+  assert.equal(c.actual,560000); assert.equal(c.perUnit,5600); assert.equal(c.estimated,505000);
+  assert.equal(c.rows.find((r)=>r.name==='Kesim')?.actual,30000); assert.equal(c.rows[0].difference,20000);
+  assert.deepEqual((await f.orders.list())[0].sheetCosts,settings);
+  const second=await f.orders.create(f.input);
+  await assert.rejects(f.orders.saveSheetCosts(second.id,second.revision,settings), /iki üretime/);
+  await assert.rejects(f.orders.saveSheetCosts(second.id,second.revision,{estimated:{},sources:['stage:cutting:0']}), /iki üretime/);
+  await assert.rejects(f.orders.saveSheetCosts(second.id,second.revision,{estimated:{},sources:['missing']}), /bulunamadı/);
+  data.fabrics.records[0].priceMinor=12000; sources=costSources(data); c=generalSheetCosts(o,sources,automaticCostSources(o,data,sources)); assert.equal(c.actual,660000);
+  assert.equal(generalSheetCosts(o,[],[]).missing.length,3);
+});
+
+test('Tek Nakış/Baskı grubu teknik bilgileri ve ayrı sonuçları korur; başlanmış işlem türü değişmez', async () => {
+  const f=await setup(); let o=await f.orders.create(f.input);
+  o=await f.orders.saveDecoration(o.id,o.revision,['Nakış','Baskı'],{...emptyEmbroidery(),position:'Göğüs',color:'Mavi',notes:['Logo']},{...emptyEmbroidery(),position:'Sırt',color:'Beyaz'});
+  assert.deepEqual(stageGroups(o.product).map((g)=>g.name),['Kesim','Nakış / Baskı','Dikim','Ütü & Paket']);
+  assert.equal(o.product.embroidery.color,'Mavi'); assert.equal(o.product.printing?.color,'Beyaz');
+  o=await f.orders.savePlanning(o.id,o.revision,o.product.enabledStages.map((type)=>({type,companyId:f.supplier.id,plannedStart:o.date,dueDate:o.dueDate})));
+  for(const type of ['Kesim','Nakış'] as const) { o=await f.orders.beginPlannedStage(o.id,o.revision,type); o=await f.orders.recordStageResult(o.id,o.revision,type,[{color:'Siyah',quantity:type==='Kesim'?100:95}],[]); }
+  const raw=f.values.get('argent-tekstil.production.v1');
+  await assert.rejects(f.orders.saveDecoration(o.id,o.revision,['Baskı'],emptyEmbroidery(),emptyEmbroidery()),/tür değiştirilemez/); assert.equal(f.values.get('argent-tekstil.production.v1'),raw);
+  o=await f.orders.beginPlannedStage(o.id,o.revision,'Baskı'); o=await f.orders.recordStageResult(o.id,o.revision,'Baskı',[{color:'Siyah',quantity:92}],[]);
+  assert.equal(o.product.stages.find((s)=>s.type==='Nakış')?.result?.rows[0].quantity,95); assert.equal(o.product.stages.find((s)=>s.type==='Baskı')?.result?.rows[0].quantity,92);
 });

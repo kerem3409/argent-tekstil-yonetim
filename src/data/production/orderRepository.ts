@@ -17,8 +17,10 @@ import type { StagePlan } from '../../domain/productionOrder';
 import { operationDate, resultChanged, stagePlan } from '../../domain/productionPlanning.ts';
 import { productionCosts, validateCostPrices } from '../../domain/productionCosts.ts';
 import type { CostPrices } from '../../domain/productionCosts';
+import { automaticCostSources, costSources, validateSheetCosts } from '../../domain/generalSheetCosts.ts';
+import type { CostSourceData, SheetCostSettings } from '../../domain/generalSheetCosts';
 
-interface Dependencies { contacts: Pick<ContactRepository, 'get'>; definitions: Pick<ProductDefinitionRepository, 'requireActive'>; products: Pick<ProductRepository, 'load' | 'receiveProduction'> }
+interface Dependencies { contacts: Pick<ContactRepository, 'get'>; definitions: Pick<ProductDefinitionRepository, 'requireActive'>; products: Pick<ProductRepository, 'load' | 'receiveProduction'>; costData?: () => Promise<CostSourceData> }
 export function createOrderRepository(storage: () => StoragePort, deps: Dependencies, lock?: StoreLock) {
   const store = createStore<WorkflowStore>(PRODUCTION_STORAGE_KEY, () => ({ version: 1, plans: [], jobs: [], stages: [], nextPlan: 1, nextJob: 1, nextStage: 1 }), validateWorkflowStore, storage, lock);
   const deletionPin = createDeletionPin(storage, lock);
@@ -63,6 +65,29 @@ export function createOrderRepository(storage: () => StoragePort, deps: Dependen
     async load() { return all(await store.load()); },
     async list() { return (await all(await store.load())).orders; },
     async listBrands() { return brands(await store.load()); },
+    async saveSheetCosts(id: string, revision: number, settings: SheetCostSettings) {
+      validateSheetCosts(settings);
+      return store.transact(async (data) => {
+        const o = await find(data, id, revision);
+        const sourceData = await deps.costData?.(), sources = sourceData ? costSources(sourceData) : [];
+        if (settings.sources.some((id) => !sources.some((s) => s.id === id))) throw new Error('Seçilen maliyet kaydı bulunamadı. Kaynakları yenileyin.');
+        const other = (await all(data)).orders.find((r) => r.id !== id && (r.sheetCosts?.sources.some((s) => settings.sources.includes(s)) || sourceData && automaticCostSources(r, sourceData, sources).some((s) => settings.sources.includes(s.id))));
+        if (other) throw new Error(`Bu maliyet kaydı ${other.orderNo} siparişine bağlı. Aynı hareket iki üretime eklenemez.`);
+        o.sheetCosts = structuredClone(settings); return save(data, o);
+      });
+    },
+    async saveDecoration(id: string, revision: number, types: ('Nakış' | 'Baskı')[], embroidery: OrderProduct['embroidery'], printing: OrderProduct['embroidery']) {
+      if (new Set(types).size !== types.length || types.some((t) => !['Nakış', 'Baskı'].includes(t))) throw new Error('İşlem türü geçersiz.');
+      return store.transact(async (data) => {
+        const o = await find(data, id, revision), p = editable(o);
+        const changed = ['Nakış', 'Baskı'].some((t) => p.enabledStages.includes(t as PlanStage) !== types.includes(t as 'Nakış' | 'Baskı'));
+        if (changed && (p.stockTransfer || p.stages.some((s) => ['Nakış', 'Baskı', 'Dikim', 'Ütü & Paket'].includes(s.type)))) throw new Error('İşlem başladığı için tür değiştirilemez. Teknik bilgiler düzenlenebilir.');
+        p.enabledStages = ['Kesim', ...types, 'Dikim', 'Ütü & Paket'];
+        p.embroidery = { ...structuredClone(embroidery), notes: embroidery.notes.map((s) => s.trim()).filter(Boolean), colorNotes: p.embroidery.colorNotes };
+        p.printing = { ...structuredClone(printing), notes: printing.notes.map((s) => s.trim()).filter(Boolean), colorNotes: p.printing?.colorNotes ?? [] };
+        o.stagePlans = o.stagePlans?.filter((s) => p.enabledStages.includes(s.type)); validateOrderProduct(p); return save(data, o);
+      });
+    },
     async saveCosts(id: string, revision: number, prices: CostPrices) {
       validateCostPrices(prices);
       return store.transact(async (data) => { const o = await find(data, id, revision); productionCosts(o, prices); o.costPricesMinor = { ...prices }; return save(data, o); });

@@ -57,8 +57,8 @@ test('Üretim siparişleri: gerçek formlar, tek detay, çıktılar ve yaşam d�
       assert.ok([...document.querySelectorAll('.common-size-input')].every((n) => n.value === '1'));
       await fill(field('Madde 1'), 'Etiket içte'); await click(document.querySelector('[aria-label="Madde ekle"]')); await fill(field('Madde 2'), 'Yaka ribana');
       await fill(field('Paket Tipi'), 'Poşet'); await fill(field('Bir Pakette Kaç Ürün'), '5');
-      if (embroidery) { await click(button('Var', document.querySelector('[aria-label="Nakış"]'))); await click(document.querySelector('[aria-label="Nakış Notu ekle"]')); await fill(field('Nakış Notu 1'), 'Logo tona ton'); await fill(field('Nakış Konumu'), 'Sol göğüs'); await fill(field('Nakış Ölçüsü'), '8 cm'); assert.ok(!body().includes('Nakış Açıklaması')); }
-      if (printing) { await click(button('Var', document.querySelector('[aria-label="Baskı"]'))); await click(button('Baskı Notu ekle')); await fill(field('Baskı Notu 1'), 'Beyaz baskı'); await fill(field('Baskı Konumu'), 'Ön göğüs'); await fill(field('Baskı Ölçüsü'), '10 cm'); assert.ok(!body().includes('Baskı Rengi / Bilgisi')); }
+      if (embroidery) { await fill(field('İşlem Türü'), printing ? 'İkisi de' : 'Nakış'); await click(document.querySelector('[aria-label="Nakış Notu ekle"]')); await fill(field('Nakış Notu 1'), 'Logo tona ton'); await fill(field('Nakış Konumu'), 'Sol göğüs'); await fill(field('Nakış Ölçüsü'), '8 cm'); assert.ok(!body().includes('Nakış Açıklaması')); }
+      if (printing) { await fill(field('İşlem Türü'), embroidery ? 'İkisi de' : 'Baskı'); await click(button('Baskı Notu ekle')); await fill(field('Baskı Notu 1'), 'Beyaz baskı'); await fill(field('Baskı Konumu'), 'Ön göğüs'); await fill(field('Baskı Ölçüsü'), '10 cm'); assert.ok(!body().includes('Baskı Rengi / Bilgisi')); }
       if (pause) return window.location.hash;
       await click(button('Siparişi Kaydet')); assert.equal(document.querySelector('[role=alert]'), null, body());
       return (await orderRepository.list()).at(-1);
@@ -116,7 +116,7 @@ test('Üretim siparişleri: gerçek formlar, tek detay, çıktılar ve yaşam d�
       const p = await createOrder({ embroidery: true, printing: true, noEmbroideryFirm: true });
       assert.ok(body().includes('Föyler')); assert.equal(document.querySelectorAll('.plan-stage').length, 0);
       const detailHeadings = [...new Set([...document.querySelectorAll('.plan-detail-grid > div h2')].map((h) => h.textContent))];
-      assert.deepEqual(detailHeadings.slice(1, 8), ['Ürün Bilgileri', 'Ürün Özellikleri', 'Renk ve Adetler', 'Seri / Beden Bilgisi', 'Nakış Bilgileri', 'Baskı Bilgileri', 'Paket / Ambalaj Bilgisi']);
+      assert.deepEqual(detailHeadings.slice(1, 6), ['Ürün Bilgileri', 'Ürün Özellikleri', 'Renk ve Adetler', 'Seri / Paket Bilgileri', 'Nakış / Baskı Bilgileri']);
       assert.ok(document.querySelector('.plan-status-panel').textContent.includes('Sipariş Adedi: 500'));
       assert.equal(document.querySelectorAll('.stage-completed-quantity').length, 0);
       const before = window.localStorage.getItem('argent-tekstil.production.v1');
@@ -136,9 +136,9 @@ test('Üretim siparişleri: gerçek formlar, tek detay, çıktılar ve yaşam d�
       const labels = { Kesim: 'Kesimi Başlat', Nakış: 'Nakışı Başlat', Baskı: 'Baskıyı Başlat', Dikim: 'Dikimi Başlat', 'Ütü & Paket': 'Ütü/Paketi Başlat' };
       const sheets = { Kesim: 'Kesimci Föyü', Nakış: 'Nakışçı Föyü', Baskı: 'Baskıcı Föyü', Dikim: 'Dikim Föyü', 'Ütü & Paket': 'Ütü / Paket Föyü' };
       for (const [type, start, actual] of [['Kesim', 500, 510], ['Nakış', 510, 505], ['Baskı', 505, 503], ['Dikim', 503, 500], ['Ütü & Paket', 500, 498]]) {
-        const section = () => [...document.querySelectorAll('.plan-stage')].find((s) => s.querySelector('h3').textContent.startsWith(type));
+        const section = () => document.querySelector(`[data-operation="${type}"]`);
         await click(button(labels[type], section())); assert.equal(document.querySelector('[role=alert]'), null, body());
-        assert.equal(section().open, true);
+        assert.equal(section().closest('details').open, true);
         assert.ok(body().includes(type === 'Nakış' ? 'Yeni Nakış Atölyesi' : `${type} Atölyesi`));
         assert.equal(section().querySelectorAll('table').length, 1); assert.equal(section().querySelector('[aria-label="Siyah başlangıç"]').value, String(start));
         assert.ok(!section().textContent.includes('Sonuç Tarihi')); assert.ok(!section().textContent.includes('Renk Notu'));
@@ -148,19 +148,19 @@ test('Üretim siparişleri: gerçek formlar, tek detay, çıktılar ve yaşam d�
         let confirms = 0; window.confirm = () => { confirms++; return false; }; const hash = window.location.hash; await click(document.querySelector('a[href="#/"]')); assert.equal(confirms, 1); assert.equal(window.location.hash, hash);
         await click(button(`${type === 'Ütü & Paket' ? 'Ütü/Paket' : type} Sonucunu Kaydet`, section())); assert.equal(document.querySelector('[role=alert]'), null, body());
         assert.equal(section().querySelectorAll('table').length, 1); assert.ok(section().textContent.includes('TOPLAM'));
-        assert.equal(section().open, false);
-        const summary = section().querySelector('summary');
-        for (const value of ['Tamamlandı', 'Firma:', 'Planlanan Başlangıç:', '2026-10-01', 'Termin:', '2026-10-05']) assert.ok(summary.textContent.includes(value), value);
+        assert.equal(section().closest('details').open, type === 'Nakış');
+        const summary = section().closest('details').querySelector('summary');
+        for (const value of [type === 'Nakış' ? 'Devam ediyor' : 'Tamamlandı', 'Başlangıç:', '2026-10-01', 'Termin:', '2026-10-05']) assert.ok(summary.textContent.includes(value), value);
         assert.equal(summary.querySelector('table'), null);
-        await click(summary); assert.equal(section().open, true);
-        await click(summary); assert.equal(section().open, false);
-        const panelRow = [...document.querySelectorAll('.plan-process li')].find((r) => r.textContent.startsWith(type));
-        assert.equal(panelRow.querySelector('.stage-completed-quantity').textContent.trim(), String(actual));
+        await click(summary); assert.equal(section().closest('details').open, type !== 'Nakış');
+        await click(summary); assert.equal(section().closest('details').open, type === 'Nakış');
+        const panelRow = [...document.querySelectorAll('.plan-process li')].find((r) => r.textContent.startsWith(type === 'Baskı' ? 'Nakış / Baskı' : type));
+        if (type === 'Nakış') assert.equal(panelRow.querySelector('.stage-completed-quantity'), null); else assert.equal(panelRow.querySelector('.stage-completed-quantity').textContent.trim(), String(actual));
         for (const row of document.querySelectorAll('.plan-process li:not(.done)')) assert.equal(row.querySelector('.stage-completed-quantity'), null);
         const headers = [...tracking().querySelectorAll('th')].map((c) => c.textContent);
-        const column = headers.indexOf(type === 'Ütü & Paket' ? 'Ütü/Paket' : type);
-        assert.equal(trackingRows()[0][column], String(actual));
-        assert.equal(trackingRows().at(-1)[column], String(actual));
+        const column = headers.indexOf(type === 'Ütü & Paket' ? 'Ütü/Paket' : type === 'Nakış' || type === 'Baskı' ? 'Nakış / Baskı' : type);
+        assert.equal(trackingRows()[0][column].split(' ')[0], String(actual));
+        assert.equal(trackingRows().at(-1)[column].split(' ')[0], String(actual));
         assert.equal(trackingRows()[0].at(-1), String(actual));
         const raw = window.localStorage.getItem('argent-tekstil.production.v1'); await click(button(sheets[type])); paper = document.querySelector('.plan-technical-print'); for (const value of [String(actual), '2026-10-05', type === 'Nakış' ? 'Yeni Nakış Atölyesi' : `${type} Atölyesi`]) assert.ok(paper.textContent.includes(value), value); assert.ok(!paper.textContent.includes('ABC Tekstil')); assert.equal(window.localStorage.getItem('argent-tekstil.production.v1'), raw);
         const quantityTable = paper.querySelector('.sheet-quantity-table table');
@@ -170,15 +170,15 @@ test('Üretim siparişleri: gerçek formlar, tek detay, çıktılar ve yaşam d�
         await click(button('Siparişe Dön'));
       }
       // A consistent correction updates downstream input after explicit confirmation.
-      const embroidery = () => [...document.querySelectorAll('.plan-stage')].find((s) => s.querySelector('h3').textContent.startsWith('Nakış'));
-      await click(embroidery().querySelector('summary')); assert.equal(embroidery().open, true);
+      const embroidery = () => document.querySelector('[data-operation="Nakış"]');
+      await click(embroidery().closest('details').querySelector('summary')); assert.equal(embroidery().closest('details').open, true);
       await fill(embroidery().querySelector('[name=actual-0]'), '504'); let warning = ''; window.confirm = (message) => { warning = message; return true; };
       await click(button('Nakış Sonucunu Kaydet', embroidery())); assert.ok(warning.includes('Baskı başlangıç')); assert.equal(document.querySelector('[role=alert]'), null, body());
-      const printStage = [...document.querySelectorAll('.plan-stage')].find((s) => s.querySelector('h3').textContent.startsWith('Baskı')); assert.equal(printStage.querySelector('[aria-label="Siyah başlangıç"]').value, '504');
+      const printStage = document.querySelector('[data-operation="Baskı"]'); assert.equal(printStage.querySelector('[aria-label="Siyah başlangıç"]').value, '504');
       await fill(field('Nakış Termin Tarihi'), '2026-10-08'); await click(button('Planlamayı Kaydet')); assert.equal((await orderRepository.list())[0].stagePlans.find((p) => p.type === 'Nakış').dueDate, '2026-10-08');
-      assert.deepEqual(trackingRows().at(-1), ['TOPLAM', '500', '510', '504', '503', '500', '498', '498']);
-      assert.ok(tracking().textContent.includes('Genel Fark: 2 fire'));
-      assert.equal((await orderRepository.list())[0].id, p.id); assert.ok(body().includes('Tamamlanan sağlam ürün: 498')); assert.ok(body().includes('Stoğa Aktarılmayı Bekliyor'));
+      assert.deepEqual(trackingRows().at(-1), ['TOPLAM', '500', '510 (+10)', '503 (-7)', '500 (-3)', '498 (-2)', '498']);
+      assert.ok(tracking().textContent.includes('Sipariş Farkı: -2'));
+      assert.equal((await orderRepository.list())[0].id, p.id); assert.ok(body().includes('Tamamlanan Sağlam Ürün: 498')); assert.ok(body().includes('Stoğa Aktarılmayı Bekliyor'));
       await click(button('Stoğa Aktar')); assert.ok(body().includes('Stoğa Aktarıldı')); await click(button('Siparişlere Dön')); await fill(field('Durum'), 'Stoğa Aktarıldı'); assert.ok(document.querySelector('.ws-table tbody').textContent.includes(p.orderNo)); assert.ok(button('DETAY').textContent === 'DETAY');
     });
     await t.test('İki renk aynı tablo ve doğru toplam; sonuç tarihi kullanıcıdan istenmez', async () => {
@@ -190,16 +190,16 @@ test('Üretim siparişleri: gerçek formlar, tek detay, çıktılar ve yaşam d�
       assert.deepEqual([...section.querySelector('tbody').lastElementChild.cells].map((c) => c.textContent), ['TOPLAM', '800', '805', '16', '335', '+5 adet']);
       await click(button('Kesim Sonucunu Kaydet', section)); assert.equal(document.querySelector('[role=alert]'), null, body()); assert.ok(!section.textContent.includes('Sonuç Tarihi'));
       assert.deepEqual([...tracking().querySelectorAll('th')].map((c) => c.textContent), ['Renk', 'Sipariş', 'Kesim', 'Dikim', 'Ütü/Paket', 'Tamamlanan']);
-      assert.deepEqual(trackingRows(), [['Siyah', '500', '510', '—', '—', '510'], ['Beyaz', '300', '295', '—', '—', '295'], ['TOPLAM', '800', '805', '—', '—', '805']]);
-      assert.ok(tracking().textContent.includes('Genel Fark: +5 adet'));
+      assert.deepEqual(trackingRows(), [['Siyah', '500', '510 (+10)', '—', '—', '510'], ['Beyaz', '300', '295 (-5)', '—', '—', '295'], ['TOPLAM', '800', '805 (+5)', '—', '—', '805']]);
+      assert.ok(tracking().textContent.includes('Sipariş Farkı: +5'));
       for (const [type, quantities] of [['Dikim', [500, 294]], ['Ütü & Paket', [480, 292]]]) {
         await click(button(type === 'Dikim' ? 'Dikimi Başlat' : 'Ütü/Paketi Başlat'));
         const stage = [...document.querySelectorAll('.plan-stage')].find((s) => s.querySelector('h3').textContent.startsWith(type));
         for (let i = 0; i < quantities.length; i++) await fill(stage.querySelector(`[name=actual-${i}]`), String(quantities[i]));
         await click(button(type === 'Dikim' ? 'Dikim Sonucunu Kaydet' : 'Ütü/Paket Sonucunu Kaydet', stage));
       }
-      assert.deepEqual(trackingRows(), [['Siyah', '500', '510', '500', '480', '480'], ['Beyaz', '300', '295', '294', '292', '292'], ['TOPLAM', '800', '805', '794', '772', '772']]);
-      assert.ok(tracking().textContent.includes('Genel Fark: 28 fire'));
+      assert.deepEqual(trackingRows(), [['Siyah', '500', '510 (+10)', '500 (-10)', '480 (-20)', '480'], ['Beyaz', '300', '295 (-5)', '294 (-1)', '292 (-2)', '292'], ['TOPLAM', '800', '805 (+5)', '794 (-11)', '772 (-22)', '772']]);
+      assert.ok(tracking().textContent.includes('Sipariş Farkı: -28'));
       const panel = document.querySelector('.plan-status-panel');
       assert.ok(panel.textContent.includes('Sipariş Adedi: 800'));
       assert.ok(!panel.textContent.includes('Nakış')); assert.ok(!panel.textContent.includes('Baskı'));
@@ -262,7 +262,7 @@ test('Üretim siparişleri: gerçek formlar, tek detay, çıktılar ve yaşam d�
     await t.test('Canlı Üretim ekranı ürün toplamı ve sipariş detayına geçiş', async () => {
       const fixture = await mount(); const first = await createOrder({ ...fixture, fresh: false }); await planAll(); await click(button('Üretime Başla')); await click(button('Kesimi Başlat'));
       const second = await createOrder({ ...fixture, fresh: false, internal: true }); await planAll(); await click(button('Üretime Başla')); await click(button('Kesimi Başlat'));
-      await navigate('/uretim/canli'); const table = document.querySelector('table'); assert.equal(table.tBodies[0].rows.length, 1); assert.deepEqual([...table.tBodies[0].rows[0].cells].slice(1).map((c) => c.textContent), ['1000', '1000', '0', '0', '0', '0']);
+      await navigate('/uretim/canli'); const table = document.querySelector('table'); assert.equal(table.tBodies[0].rows.length, 1); assert.deepEqual([...table.tBodies[0].rows[0].cells].slice(1).map((c) => c.textContent), ['1000', '1000', '0', '0', '0']);
       await click(button('Polo Türü')); assert.ok(body().includes(first.orderNo)); assert.ok(body().includes(second.orderNo)); assert.ok(body().includes('ABC Tekstil')); assert.ok(body().includes('ARGENT')); await click(button('DETAY')); assert.ok(body().includes('Üretim Planlama'));
     });
     await t.test('Arşiv: görünenleri seç, üçlü geri yükle, PIN ile toplu çöp', async () => {
@@ -335,13 +335,20 @@ test('Üretim siparişleri: gerçek formlar, tek detay, çıktılar ve yaşam d�
     await t.test('Detay accordionları ve maliyet fiyatı yeniden açıldığında kalıcıdır', async () => {
       const o = await createOrder();
       const disclosures = [...document.querySelectorAll('details.production-disclosure')];
-      assert.ok(disclosures.length >= 10); assert.ok(disclosures.every((d) => !d.open));
+      assert.ok(disclosures.length >= 7); assert.ok(disclosures.every((d) => !d.open));
       const costs = disclosures.find((d) => d.querySelector('summary').textContent.includes('Maliyetler'));
-      await click(costs.querySelector('summary')); assert.equal(costs.open, true);
+      await click(costs.querySelector('summary')); assert.equal(costs.open, true); await click(button('Genel Föy Maliyetlerini Aç')); await waitFor(() => !!document.querySelector('[aria-label="Kumaş Birim Fiyatı"]'));
       await fill(document.querySelector('[aria-label="Kumaş Birim Fiyatı"]'), '100'); await click(button('Maliyetleri Kaydet'));
       assert.equal((await orderRepository.list())[0].costPricesMinor.Kumaş, 10000);
-      await navigate('/uretim/siparisler'); await navigate(`/uretim/siparisler?id=${o.id}`);
+      await navigate('/uretim/siparisler'); await navigate(`/uretim/siparisler?id=${o.id}&print=Genel`); await waitFor(() => !!document.querySelector('[aria-label="Kumaş Birim Fiyatı"]'));
       assert.equal(document.querySelector('[aria-label="Kumaş Birim Fiyatı"]').value, '100'); assert.ok(body().includes('Henüz hesaplanamadı'));
+      assert.ok(!body().includes('Üretim Özeti')); assert.ok(body().includes('Nakış / Baskı yok'));
+      await fill(field('Kumaş Tahmini Tutar (TL)'), '5000'); await click(button('Föy Maliyetlerini Kaydet'));
+      assert.equal((await orderRepository.list())[0].sheetCosts.estimated.Kumaş, 500000);
+      await navigate('/uretim/siparisler');
+      assert.deepEqual([...document.querySelector('.production-row-actions').querySelectorAll('a,button')].map(n=>n.textContent), ['Genel Föy','DETAY','Arşive At','Sil']);
+      await click(button('Genel Föy')); await waitFor(() => !!document.querySelector('[aria-label="Kumaş Birim Fiyatı"]'));
+      assert.equal(field('Kumaş Tahmini Tutar (TL)').value, '5000');
     });
   } finally {
     if (root) await act(async () => root.unmount()); await server.close(); dom.window.close();
