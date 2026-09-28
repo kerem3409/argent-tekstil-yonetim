@@ -1,21 +1,32 @@
-import { colorKey, stageInput } from '../../domain/productionPlan';
-import { groupResult, stageGroups } from '../../domain/productionPresentation';
+import { colorKey, stageInput, stageRecord } from '../../domain/productionPlan';
+import type { PlanStage } from '../../domain/productionPlan';
+import { groupResult } from '../../domain/productionPresentation';
+import { stagePlan } from '../../domain/productionPlanning';
 import type { ProductionOrder } from '../../domain/productionOrder';
-import { Section, Table } from '../shared/WorkshopUI';
+import type { Contact } from '../contacts/model';
+import { Section, companyName } from '../shared/WorkshopUI';
 
-export function QuantityTracking({ order }: { order: ProductionOrder }) {
-  const p = order.product, groups = stageGroups(p), results = groups.map((g) => groupResult(p, g.types));
-  const latest = [...results].reverse().find(Boolean);
+export function QuantityTracking({ order, contacts = [] }: { order: ProductionOrder; contacts?: Contact[] }) {
+  const p = order.product;
+  const groups: { name: string; types: PlanStage[] }[] = [{ name: 'Kesim', types: ['Kesim'] }, { name: 'Uygulama', types: (['Nakış', 'Baskı'] as PlanStage[]).filter((s) => p.enabledStages.includes(s)) }, { name: 'Dikim', types: ['Dikim'] }, { name: 'Ütü Paket', types: ['Ütü & Paket'] }];
+  const results = groups.map((g) => groupResult(p, g.types)), latest = [...results].reverse().find(Boolean);
   const amount = (rows: { color: string; quantity: number }[] | undefined, color?: string) => rows ? rows.filter((r) => !color || colorKey(r.color) === colorKey(color)).reduce((n, r) => n + r.quantity, 0) : undefined;
-  const completed = amount(latest?.rows), requested = amount(p.colors)!;
-  const cell = (index: number, color?: string) => {
-    const actual = amount(results[index]?.rows, color), initial = amount(stageInput(p, groups[index].types[0]), color);
-    if (actual === undefined) return '—';
-    const delta = initial === undefined ? 0 : actual - initial;
+  const requested = amount(p.colors)!, completed = amount(latest?.rows);
+  const cell = (i: number, color?: string) => {
+    const actual = amount(results[i]?.rows, color); if (actual === undefined) return '—';
+    const initial = amount(stageInput(p, groups[i].types[0]), color), delta = initial === undefined ? 0 : actual - initial;
     return `${actual}${delta ? ` (${delta > 0 ? '+' : ''}${delta})` : ''}`;
   };
-  return <div className="order-quantity-tracking"><Section title="Adet Takibi"><Table headers={['Renk', 'Sipariş', ...groups.map((g) => g.name === 'Ütü & Paket' ? 'Ütü/Paket' : g.name), 'Tamamlanan']} rows={[
-    ...p.colors.map((r) => [r.color, r.quantity, ...groups.map((_, i) => cell(i, r.color)), amount(latest?.rows, r.color) ?? '—']),
-    ['TOPLAM', requested, ...groups.map((_, i) => cell(i)), completed ?? '—'],
-  ]} /><p>Toplam Sipariş: {requested} · Tamamlanan Sağlam Ürün: {completed ?? '—'} · Sipariş Farkı: {completed === undefined ? '—' : `${completed - requested > 0 ? '+' : ''}${completed - requested}`}</p><p className="ws-hint">Parantez: aşama girişine göre fazla (+) veya fire (−). Tamamlanan, son kaydedilen sağlam çıktıdır; stok aktarımı tüm işlemler tamamlanınca açılır.</p></Section></div>;
+  const assignment = (date: boolean) => <ul className="quantity-assignments">{groups.filter((g) => g.types.length).map((g) => {
+    const values = g.types.map((type) => {
+      const plan = stagePlan(order, type);
+      return { type, value: (date ? plan?.dueDate : companyName(contacts, plan?.companyId || stageRecord(p, type)?.companyId || '')) || '—' };
+    });
+    const same = date && values.every((v) => v.value === values[0].value);
+    return <li key={g.name}><strong>{g.name}:</strong> {same ? <span className="quantity-date-value">{values[0].value}</span> : values.map((v, i) => <span key={v.type}>{i > 0 && ' / '}{values.length > 1 && `${v.type}: `}<span className={date ? 'quantity-date-value' : undefined}>{v.value}</span></span>)}</li>;
+  })}</ul>;
+  return <div className="order-quantity-tracking"><Section title="Adet Tablosu"><div className="table-scroll"><table className="ws-table quantity-sheet-table"><caption className="sr-only">Üretim adetleri, firmalar ve terminler</caption><thead><tr>{['Renkler', 'Sipariş', ...groups.map((g) => g.name), 'Firma', 'Termin'].map((h) => <th key={h} scope="col">{h}</th>)}</tr></thead><tbody>
+    {p.colors.map((r, i) => <tr key={r.color}><td>{r.color}</td><td>{r.quantity}</td>{groups.map((g, n) => <td key={g.name}>{cell(n, r.color)}</td>)}{i === 0 && <><td rowSpan={p.colors.length} className="quantity-firms">{assignment(false)}</td><td rowSpan={p.colors.length} className="quantity-dates">{assignment(true)}</td></>}</tr>)}
+    <tr className="quantity-total"><td>TOPLAM</td><td>{requested}</td>{groups.map((g,n) => <td key={g.name}>{cell(n)}</td>)}<td colSpan={2} /></tr>
+  </tbody></table></div><p className="quantity-totals">Toplam Sipariş: <strong>{requested}</strong> · Tamamlanan Sağlam Ürün: <strong>{completed ?? '—'}</strong> · Genel Fark: <strong>{completed === undefined ? '—' : `${completed - requested > 0 ? '+' : ''}${completed - requested}`}</strong></p></Section></div>;
 }

@@ -24,7 +24,7 @@ test('Üretim siparişleri: gerçek formlar, tek detay, çıktılar ve yaşam d�
     const { INTERNAL_CUSTOMER_ID } = await server.ssrLoadModule('/src/domain/productionPlan.ts');
     const body = () => document.body.textContent;
     const tracking = () => document.querySelector('.order-quantity-tracking');
-    const trackingRows = () => [...tracking().querySelectorAll('tbody tr')].map((row) => [...row.cells].map((c) => c.textContent));
+    const trackingRows = () => [...tracking().querySelectorAll('tbody tr')].map((row) => [...row.cells].slice(0, 6).map((c) => c.textContent));
     const button = (name, within = document) => { const found = [...within.querySelectorAll('button,a')].find((b) => b.textContent === name || b.getAttribute('aria-label') === name); assert.ok(found, `Button ${name}`); return found; };
     const field = (name, within = document) => { const found = [...within.querySelectorAll('label')].find((l) => l.querySelector('span')?.textContent === name)?.querySelector('input,select,textarea'); assert.ok(found, `Field ${name}`); return found; };
     async function click(node) { await act(async () => node.click()); }
@@ -46,9 +46,9 @@ test('Üretim siparişleri: gerçek formlar, tek detay, çıktılar ve yaşam d�
       await waitFor(() => !!document.querySelector('form'));
       assert.equal(field('Müşteri *').value, customer?.id ?? '');
       if (internal) await fill(field('Müşteri *'), INTERNAL_CUSTOMER_ID);
-      await fill(field('Sipariş Adı *'), 'Yaz Siparişi'); await fill(field('Termin Tarihi *'), '2026-10-05');
-      await fill(field('Müşteri Referans No'), 'ÖZEL-REF'); await fill(field('Müşteri Sipariş Notu'), 'ABC Tekstil 05551112233 fiyat 1000');
-      await fill(field('Ürün Türü / Tanımı *'), product.id); await fill(field('Ürün / Model Adı *'), 'Polo Model');
+      await fill(field('Termin Tarihi *'), '2026-10-05');
+      await fill(field('Müşteri Sipariş Notu'), 'ABC Tekstil 05551112233 fiyat 1000');
+      await fill(field('Ürün Türü *'), product.id); await fill(field('Ürün / Model *'), 'Polo Model');
       // Brand created outside the mounted page is selected through the same quick-create flow.
       await click(button('Yeni Marka')); await fill(field('Marka Adı *'), 'PALO'); await click(button('Marka Kaydet'));
       assert.equal(field('Marka *').value, brand.id);
@@ -57,8 +57,8 @@ test('Üretim siparişleri: gerçek formlar, tek detay, çıktılar ve yaşam d�
       assert.ok([...document.querySelectorAll('.common-size-input')].every((n) => n.value === '1'));
       await fill(field('Madde 1'), 'Etiket içte'); await click(document.querySelector('[aria-label="Madde ekle"]')); await fill(field('Madde 2'), 'Yaka ribana');
       await fill(field('Paket Tipi'), 'Poşet'); await fill(field('Bir Pakette Kaç Ürün'), '5');
-      if (embroidery) { await fill(field('İşlem Türü'), printing ? 'İkisi de' : 'Nakış'); await click(document.querySelector('[aria-label="Nakış Notu ekle"]')); await fill(field('Nakış Notu 1'), 'Logo tona ton'); await fill(field('Nakış Konumu'), 'Sol göğüs'); await fill(field('Nakış Ölçüsü'), '8 cm'); assert.ok(!body().includes('Nakış Açıklaması')); }
-      if (printing) { await fill(field('İşlem Türü'), embroidery ? 'İkisi de' : 'Baskı'); await click(button('Baskı Notu ekle')); await fill(field('Baskı Notu 1'), 'Beyaz baskı'); await fill(field('Baskı Konumu'), 'Ön göğüs'); await fill(field('Baskı Ölçüsü'), '10 cm'); assert.ok(!body().includes('Baskı Rengi / Bilgisi')); }
+      if (embroidery) { await fill(field('İşlem Türü'), printing ? 'İkisi de' : 'Nakış'); await click(document.querySelector('[aria-label="Nakış Uygulama Notu ekle"]')); await fill(field('Nakış Uygulama Notu 1'), 'Logo tona ton'); await fill(field('Nakış Konumu'), 'Sol göğüs'); await fill(field('Nakış Ölçüsü'), '8 cm'); assert.ok(!body().includes('Nakış Açıklaması')); }
+      if (printing) { await fill(field('İşlem Türü'), embroidery ? 'İkisi de' : 'Baskı'); await click(button('Baskı Uygulama Notu ekle')); await fill(field('Baskı Uygulama Notu 1'), 'Beyaz baskı'); await fill(field('Baskı Konumu'), 'Ön göğüs'); await fill(field('Baskı Ölçüsü'), '10 cm'); assert.ok(!body().includes('Baskı Rengi / Bilgisi')); }
       if (pause) return window.location.hash;
       await click(button('Siparişi Kaydet')); assert.equal(document.querySelector('[role=alert]'), null, body());
       return (await orderRepository.list()).at(-1);
@@ -73,12 +73,12 @@ test('Üretim siparişleri: gerçek formlar, tek detay, çıktılar ve yaşam d�
       const orders = await orderRepository.list(); assert.equal(orders.length, 3); assert.ok(orders.every((o) => o.product && !('items' in o)));
       assert.equal(orders[0].product.gsm, ''); assert.equal(orders[0].product.instructions.length, 2); assert.equal(orders[0].product.packaging.unitsPerPack, 5);
       await navigate(`/firma-kisiler/musteriler?islem=detay&id=${fixture.customer.id}`); assert.ok(body().includes('Toplam Sipariş: 3')); assert.ok(body().includes('Devam Eden: 3'));
-      await navigate('/uretim/siparisler'); assert.equal(document.querySelector('.ws-table tbody').rows.length, 3);
+      await navigate('/uretim/siparisler'); assert.equal(document.querySelectorAll('.production-record-main').length, 3);
       assert.ok(!body().includes('Plan Bazlı')); assert.ok(!body().includes('Ürün Kalemi'));
       await click(button('+ Yeni Sipariş')); assert.equal(field('Müşteri *').value, '');
       assert.ok(![...field('Marka *').options].some((o) => o.textContent === 'Markasız'));
       await click(button('Yeni Müşteri')); await fill(field('Müşteri Adı *'), 'Yeni Müşteri'); await click(button('Müşteri Kaydet')); assert.ok(field('Müşteri *').selectedOptions[0].textContent === 'Yeni Müşteri');
-      await click(button('Yeni Ürün')); await fill(field('Ürün Adı *'), 'Sweatshirt'); await click(button('Ürün Kaydet')); assert.equal(field('Ürün Türü / Tanımı *').selectedOptions[0].textContent, 'Sweatshirt');
+      await click(button('Yeni Ürün')); await fill(field('Ürün Türü Adı *'), 'Sweatshirt'); await click(button('Ürün Kaydet')); assert.equal(field('Ürün Türü *').selectedOptions[0].textContent, 'Sweatshirt');
       await click(button('Yeni Marka')); await fill(field('Marka Adı *'), 'Markasız'); await click(button('Marka Kaydet')); assert.equal(field('Marka *').selectedOptions[0].textContent, 'Markasız');
       await click(document.querySelector('[aria-label="Renk ekle"]')); assert.equal(document.querySelectorAll('.order-color-editor').length, 2); await click(document.querySelector('[aria-label="Renk 2 sil"]')); assert.equal(document.querySelectorAll('.order-color-editor').length, 1);
     });
@@ -90,11 +90,11 @@ test('Üretim siparişleri: gerçek formlar, tek detay, çıktılar ve yaşam d�
     await t.test('Taslak: ayrılma, yeniden açma, yenileme ve tek kez siparişe dönüşüm', async () => {
       const draftUrl = await createOrder({ embroidery: true, pause: true });
       const original = JSON.parse(window.localStorage.getItem('argent-tekstil.order-drafts.v1'))[0];
-      assert.equal(original.input.name, 'Yaz Siparişi'); assert.equal(original.input.product.embroidery.position, 'Sol göğüs'); assert.equal((await orderRepository.list()).length, 0);
+      assert.equal(original.input.name, 'Polo Model'); assert.equal(original.input.product.embroidery.position, 'Sol göğüs'); assert.equal((await orderRepository.list()).length, 0);
       await navigate('/uretim/siparisler'); await fill(field('Durum'), 'Taslak'); await click(button('Taslağa Devam Et'));
-      assert.equal(field('Sipariş Adı *').value, 'Yaz Siparişi'); assert.equal(field('Paket Tipi').value, 'Poşet');
+      assert.equal(field('Ürün / Model *').value, 'Polo Model'); assert.equal(field('Paket Tipi').value, 'Poşet');
       await act(async () => root.unmount()); root = createRoot(document.getElementById('root')); await act(async () => root.render(React.createElement(HashRouter, null, React.createElement(App))));
-      assert.equal(field('Ürün / Model Adı *').value, 'Polo Model'); assert.equal(field('Nakış Ölçüsü').value, '8 cm'); assert.equal(field('Madde 2').value, 'Yaka ribana');
+      assert.equal(field('Ürün / Model *').value, 'Polo Model'); assert.equal(field('Nakış Ölçüsü').value, '8 cm'); assert.equal(field('Madde 2').value, 'Yaka ribana');
       await click(button('Siparişi Kaydet')); assert.equal((await orderRepository.list()).length, 1);
       await navigate('/uretim/siparisler'); await fill(field('Durum'), 'Taslak'); assert.ok(body().includes('Kayıt bulunmuyor'));
       assert.ok(draftUrl.includes('draft='));
@@ -116,12 +116,12 @@ test('Üretim siparişleri: gerçek formlar, tek detay, çıktılar ve yaşam d�
       const p = await createOrder({ embroidery: true, printing: true, noEmbroideryFirm: true });
       assert.ok(body().includes('Föyler')); assert.equal(document.querySelectorAll('.plan-stage').length, 0);
       const detailHeadings = [...new Set([...document.querySelectorAll('.plan-detail-grid > div h2')].map((h) => h.textContent))];
-      assert.deepEqual(detailHeadings.slice(1, 6), ['Ürün Bilgileri', 'Ürün Özellikleri', 'Renk ve Adetler', 'Seri / Paket Bilgileri', 'Nakış / Baskı Bilgileri']);
+      assert.deepEqual(detailHeadings.slice(1, 6), ['Ürün Bilgileri', 'Ürün Özellikleri', 'Renk ve Adetler', 'Seri / Paket Bilgileri', 'Uygulama Bilgileri']);
       assert.ok(document.querySelector('.plan-status-panel').textContent.includes('Sipariş Adedi: 500'));
       assert.equal(document.querySelectorAll('.stage-completed-quantity').length, 0);
       const before = window.localStorage.getItem('argent-tekstil.production.v1');
       await click(button('Genel Sipariş Föyü')); let paper = document.querySelector('.plan-technical-print');
-      for (const value of ['ABC Tekstil', 'ÖZEL-REF', 'Penye', 'Poşet', 'Sol göğüs', 'Etiket içte', 'Beyaz baskı']) assert.ok(paper.textContent.includes(value), value);
+      for (const value of ['ABC Tekstil', 'Penye', 'Poşet', 'Sol göğüs', 'Etiket içte', 'Beyaz baskı']) assert.ok(paper.textContent.includes(value), value);
       await click(button('Siparişe Dön'));
       for (const name of ['Kesimci Föyü', 'Nakışçı Föyü', 'Baskıcı Föyü', 'Dikim Föyü', 'Ütü / Paket Föyü']) {
         await click(button(name)); paper = document.querySelector('.plan-technical-print'); assert.ok(paper.textContent.includes('PALO'));
@@ -158,10 +158,10 @@ test('Üretim siparişleri: gerçek formlar, tek detay, çıktılar ve yaşam d�
         if (type === 'Nakış') assert.equal(panelRow.querySelector('.stage-completed-quantity'), null); else assert.equal(panelRow.querySelector('.stage-completed-quantity').textContent.trim(), String(actual));
         for (const row of document.querySelectorAll('.plan-process li:not(.done)')) assert.equal(row.querySelector('.stage-completed-quantity'), null);
         const headers = [...tracking().querySelectorAll('th')].map((c) => c.textContent);
-        const column = headers.indexOf(type === 'Ütü & Paket' ? 'Ütü/Paket' : type === 'Nakış' || type === 'Baskı' ? 'Nakış / Baskı' : type);
+        const column = headers.indexOf(type === 'Ütü & Paket' ? 'Ütü Paket' : type === 'Nakış' || type === 'Baskı' ? 'Uygulama' : type);
         assert.equal(trackingRows()[0][column].split(' ')[0], String(actual));
         assert.equal(trackingRows().at(-1)[column].split(' ')[0], String(actual));
-        assert.equal(trackingRows()[0].at(-1), String(actual));
+        assert.ok(tracking().querySelector('.quantity-totals').textContent.includes(`Tamamlanan Sağlam Ürün: ${actual}`));
         const raw = window.localStorage.getItem('argent-tekstil.production.v1'); await click(button(sheets[type])); paper = document.querySelector('.plan-technical-print'); for (const value of [String(actual), '2026-10-05', type === 'Nakış' ? 'Yeni Nakış Atölyesi' : `${type} Atölyesi`]) assert.ok(paper.textContent.includes(value), value); assert.ok(!paper.textContent.includes('ABC Tekstil')); assert.equal(window.localStorage.getItem('argent-tekstil.production.v1'), raw);
         const quantityTable = paper.querySelector('.sheet-quantity-table table');
         assert.deepEqual([...quantityTable.tBodies[0].rows[0].cells].map((c) => c.textContent), type === 'Kesim' ? ['Siyah', '500', String(actual), 'Fark +10', '10', '210'] : ['Siyah', '500', String(start), String(actual), `${start - actual} Fire`]);
@@ -176,8 +176,8 @@ test('Üretim siparişleri: gerçek formlar, tek detay, çıktılar ve yaşam d�
       await click(button('Nakış Sonucunu Kaydet', embroidery())); assert.ok(warning.includes('Baskı başlangıç')); assert.equal(document.querySelector('[role=alert]'), null, body());
       const printStage = document.querySelector('[data-operation="Baskı"]'); assert.equal(printStage.querySelector('[aria-label="Siyah başlangıç"]').value, '504');
       await fill(field('Nakış Termin Tarihi'), '2026-10-08'); await click(button('Planlamayı Kaydet')); assert.equal((await orderRepository.list())[0].stagePlans.find((p) => p.type === 'Nakış').dueDate, '2026-10-08');
-      assert.deepEqual(trackingRows().at(-1), ['TOPLAM', '500', '510 (+10)', '503 (-7)', '500 (-3)', '498 (-2)', '498']);
-      assert.ok(tracking().textContent.includes('Sipariş Farkı: -2'));
+      assert.deepEqual(trackingRows().at(-1), ['TOPLAM', '500', '510 (+10)', '503 (-7)', '500 (-3)', '498 (-2)']);
+      assert.ok(tracking().textContent.includes('Genel Fark: -2'));
       assert.equal((await orderRepository.list())[0].id, p.id); assert.ok(body().includes('Tamamlanan Sağlam Ürün: 498')); assert.ok(body().includes('Stoğa Aktarılmayı Bekliyor'));
       await click(button('Stoğa Aktar')); assert.ok(body().includes('Stoğa Aktarıldı')); await click(button('Siparişlere Dön')); await fill(field('Durum'), 'Stoğa Aktarıldı'); assert.ok(document.querySelector('.ws-table tbody').textContent.includes(p.orderNo)); assert.ok(button('DETAY').textContent === 'DETAY');
     });
@@ -189,37 +189,33 @@ test('Üretim siparişleri: gerçek formlar, tek detay, çıktılar ve yaşam d�
       for (const [color, amount, rolls, kg] of [['Siyah', 510, 10, 210], ['Beyaz', 295, 6, 125]]) { await fill(section.querySelector(`[aria-label="${color} Kesim çıkan"]`), String(amount)); await fill(section.querySelector(`[aria-label="${color} Top"]`), String(rolls)); await fill(section.querySelector(`[aria-label="${color} Kg"]`), String(kg)); }
       assert.deepEqual([...section.querySelector('tbody').lastElementChild.cells].map((c) => c.textContent), ['TOPLAM', '800', '805', '16', '335', '+5 adet']);
       await click(button('Kesim Sonucunu Kaydet', section)); assert.equal(document.querySelector('[role=alert]'), null, body()); assert.ok(!section.textContent.includes('Sonuç Tarihi'));
-      assert.deepEqual([...tracking().querySelectorAll('th')].map((c) => c.textContent), ['Renk', 'Sipariş', 'Kesim', 'Dikim', 'Ütü/Paket', 'Tamamlanan']);
-      assert.deepEqual(trackingRows(), [['Siyah', '500', '510 (+10)', '—', '—', '510'], ['Beyaz', '300', '295 (-5)', '—', '—', '295'], ['TOPLAM', '800', '805 (+5)', '—', '—', '805']]);
-      assert.ok(tracking().textContent.includes('Sipariş Farkı: +5'));
+      assert.deepEqual([...tracking().querySelectorAll('th')].map((c) => c.textContent), ['Renkler', 'Sipariş', 'Kesim', 'Uygulama', 'Dikim', 'Ütü Paket', 'Firma', 'Termin']);
+      assert.deepEqual(trackingRows(), [['Siyah', '500', '510 (+10)', '—', '—', '—'], ['Beyaz', '300', '295 (-5)', '—', '—', '—'], ['TOPLAM', '800', '805 (+5)', '—', '—', '—']]);
+      assert.ok(tracking().textContent.includes('Genel Fark: +5'));
       for (const [type, quantities] of [['Dikim', [500, 294]], ['Ütü & Paket', [480, 292]]]) {
         await click(button(type === 'Dikim' ? 'Dikimi Başlat' : 'Ütü/Paketi Başlat'));
         const stage = [...document.querySelectorAll('.plan-stage')].find((s) => s.querySelector('h3').textContent.startsWith(type));
         for (let i = 0; i < quantities.length; i++) await fill(stage.querySelector(`[name=actual-${i}]`), String(quantities[i]));
         await click(button(type === 'Dikim' ? 'Dikim Sonucunu Kaydet' : 'Ütü/Paket Sonucunu Kaydet', stage));
       }
-      assert.deepEqual(trackingRows(), [['Siyah', '500', '510 (+10)', '500 (-10)', '480 (-20)', '480'], ['Beyaz', '300', '295 (-5)', '294 (-1)', '292 (-2)', '292'], ['TOPLAM', '800', '805 (+5)', '794 (-11)', '772 (-22)', '772']]);
-      assert.ok(tracking().textContent.includes('Sipariş Farkı: -28'));
+      assert.deepEqual(trackingRows(), [['Siyah', '500', '510 (+10)', '—', '500 (-10)', '480 (-20)'], ['Beyaz', '300', '295 (-5)', '—', '294 (-1)', '292 (-2)'], ['TOPLAM', '800', '805 (+5)', '—', '794 (-11)', '772 (-22)']]);
+      assert.ok(tracking().textContent.includes('Genel Fark: -28'));
       const panel = document.querySelector('.plan-status-panel');
       assert.ok(panel.textContent.includes('Sipariş Adedi: 800'));
       assert.ok(!panel.textContent.includes('Nakış')); assert.ok(!panel.textContent.includes('Baskı'));
       assert.deepEqual([...panel.querySelectorAll('.stage-completed-quantity')].map((n) => n.textContent.trim()), ['805', '794', '772']);
     });
-    await t.test('Var/Yok ve üretim başladıktan sonra özellik düzenleme, ekleme, silme ve yenileme', async () => {
+    await t.test('Checkbox ve üretim başladıktan sonra özellik düzenleme, ekleme, silme ve yenileme', async () => {
       await createOrder({ pause: true });
       for (const label of ['Düşük Omuz', 'Yırtmaç']) {
-        const group = document.querySelector(`[aria-label="${label}"]`);
-        for (const value of ['Var', 'Yok', 'Var']) {
-          await click(button(value, group));
-          assert.equal(group.querySelectorAll('[aria-pressed=true]').length, 1);
-          assert.equal(group.querySelector('[aria-pressed=true]').textContent, value);
-        }
+        const checkbox = field(label);
+        for (const value of [true, false, true]) { await click(checkbox); assert.equal(checkbox.checked, value); }
       }
       await click(button('Siparişi Kaydet')); await planAll(); await click(button('Üretime Başla')); await click(button('Kesimi Başlat'));
       const before = (await orderRepository.list())[0];
       await click(button('Ürün Özelliklerini Düzenle'));
-      await click(button('Yok', document.querySelector('[aria-label="Düşük Omuz"]')));
-      await click(button('Yok', document.querySelector('[aria-label="Yırtmaç"]')));
+      await click(field('Düşük Omuz'));
+      await click(field('Yırtmaç'));
       await fill(field('Madde 1'), 'Düşük omuz olmayacak');
       await click(button('Madde ekle')); await fill(field('Madde 3'), 'Kol ribanası dar olacak');
       await click(button('Madde 2 sil')); await click(button('Özellikleri Kaydet'));
@@ -229,7 +225,7 @@ test('Üretim siparişleri: gerçek formlar, tek detay, çıktılar ve yaşam d�
       await act(async () => root.render(React.createElement(HashRouter, null, React.createElement(App))));
       await click(button('Ürün Özelliklerini Düzenle'));
       assert.equal(field('Madde 1').value, 'Düşük omuz olmayacak'); assert.equal(field('Madde 2').value, 'Kol ribanası dar olacak');
-      for (const label of ['Düşük Omuz', 'Yırtmaç']) assert.equal(document.querySelector(`[aria-label="${label}"] [aria-pressed=true]`).textContent, 'Yok');
+      for (const label of ['Düşük Omuz', 'Yırtmaç']) assert.equal(field(label).checked, false);
       const after = (await orderRepository.list())[0]; assert.deepEqual(after.product.stages, before.product.stages); assert.deepEqual(after.stagePlans, before.stagePlans); assert.deepEqual(after.product.colors, before.product.colors);
       assert.deepEqual(after.product.instructions, ['Düşük omuz olmayacak', 'Kol ribanası dar olacak']);
     });
@@ -255,7 +251,7 @@ test('Üretim siparişleri: gerçek formlar, tek detay, çıktılar ve yaşam d�
       assert.equal(document.querySelectorAll('input[type=password]').length, 1);
       await click(button('İşlemi Onayla')); await waitFor(() => !document.querySelector('[role=dialog]'));
       assert.equal((await orderRepository.list()).filter((o) => o.deleted).length, 2);
-      await navigate('/uretim/cop-kutusu'); assert.equal(document.querySelector('tbody').rows.length, 2);
+      await navigate('/uretim/cop-kutusu'); assert.equal(document.querySelectorAll('.production-record-main').length, 2);
       await click(button('DETAY')); await click(button('Çöp Kutusundan Geri Yükle')); await click(button('Çöp Kutusundan Geri Yükle', document.querySelector('[role=dialog]')));
       assert.equal((await orderRepository.list()).filter((o) => o.deleted).length, 1);
     });
@@ -331,6 +327,31 @@ test('Üretim siparişleri: gerçek formlar, tek detay, çıktılar ve yaşam d�
       await navigate('/firma-kisiler/musteriler'); await click(button('ABC Tekstil kaydını sil')); assert.ok(document.querySelector('[role=dialog]'));
       await click(button('Sil / Pasife Al')); await waitFor(() => !document.querySelector('[role=dialog]'));
       assert.equal((await contactRepository.get(customer.id)).status, 'Pasif'); assert.ok(!document.querySelector('.contact-table tbody')?.textContent.includes('ABC Tekstil'));
+    });
+    await t.test('Manuel numara ve Genel Föy açıkken sonuç, firma, termin, maliyet ve numune otomatik yenilenir', async () => {
+      await createOrder({ pause: true });
+      assert.equal(document.querySelector('[aria-label="Sipariş No Türü"]').value, 'Otomatik');
+      await fill(document.querySelector('[aria-label="Sipariş No Türü"]'), 'Manuel');
+      await fill(field('Manuel Sipariş No *'), 'TEST-42');
+      for (const removed of ['Müşteri Referans No', 'Sipariş Adı', 'Etiketleme Notu', 'Nakış Rengi']) assert.ok(!body().includes(removed));
+      await click(button('Siparişi Kaydet')); await planAll();
+      let o = (await orderRepository.list())[0]; assert.equal(o.orderNo, 'TEST-42');
+      await click(button('Genel Sipariş Föyü'));
+      await waitFor(() => !!document.querySelector('.general-costs tbody'));
+      const firm = (await contactRepository.list()).find((c) => c.name === 'Kesim Atölyesi');
+      await act(async () => {
+        o = await orderRepository.savePlanning(o.id, o.revision, o.stagePlans.map((s) => ({ ...s, dueDate: '2026-10-04' })));
+        o = await orderRepository.beginPlannedStage(o.id, o.revision, 'Kesim');
+        o = await orderRepository.recordStageResult(o.id, o.revision, 'Kesim', [{ color: 'Siyah', quantity: 510, kg: 50 }], []);
+        o = await orderRepository.saveCosts(o.id, o.revision, { Kumaş: 10000 });
+        o = await orderRepository.saveSampleImages(o.id, o.revision, [{ id: 'sample', name: 'Numune', dataUrl: 'data:image/png;base64,YQ==' }]);
+        await contactRepository.update(firm.id, { ...firm, name: 'Güncel Kesim Firması' });
+      });
+      await waitFor(() => tracking()?.textContent.includes('510 (+10)') && body().includes('Güncel Kesim Firması'));
+      await waitFor(() => !!document.querySelector('.sample-thumbnail') && document.querySelector('.general-costs')?.textContent.includes('5.000,00 TL'));
+      assert.ok(document.querySelector('.quantity-dates').textContent.includes('2026-10-04'));
+      assert.ok(tracking().textContent.includes('Genel Fark: +10'));
+      assert.equal(document.querySelectorAll('.order-quantity-tracking table').length, 1);
     });
     await t.test('Detay accordionları ve maliyet fiyatı yeniden açıldığında kalıcıdır', async () => {
       const o = await createOrder();

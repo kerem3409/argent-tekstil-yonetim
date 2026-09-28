@@ -3,12 +3,14 @@ import { validateCostPrices } from './productionCosts.ts';
 import type { CostPrices } from './productionCosts';
 import { validateSheetCosts } from './generalSheetCosts.ts';
 import type { SheetCostSettings } from './generalSheetCosts';
+import { validateSampleImages } from './sampleImages.ts';
+import type { SampleImage } from './sampleImages';
 import { itemStatus, validateNotes, validatePlanInput, validatePlanRecords } from './productionPlan.ts';
 import type { PlanItem, ProductionPlan } from './productionPlan';
 
 export interface EmbroideryInfo { notes: string[]; colorNotes: { color: string; note: string }[]; position: string; size: string; technicalNote: string; color?: string }
 export interface PackagingInfo { unitsPerPack?: number; type: string; sizeMode: string; note: string; labelingNote: string }
-export interface OrderProduct extends PlanItem { brandId: string; embroidery: EmbroideryInfo; packaging: PackagingInfo; printing?: EmbroideryInfo; dropShoulder?: boolean; sideSlit?: boolean }
+export interface OrderProduct extends PlanItem { brandId: string; embroidery: EmbroideryInfo; packaging: PackagingInfo; printing?: EmbroideryInfo; dropShoulder?: boolean; sideSlit?: boolean; sampleImages?: SampleImage[] }
 export interface StagePlan { type: import('./productionPlan').PlanStage; companyId: string; plannedStart: string; dueDate: string }
 export interface ProductionOrder {
   workflowVersion: 4; id: string; orderNo: string; name: string; customerId: string;
@@ -25,7 +27,7 @@ export interface ProductionOrder {
   resultHistory?: { type: import('./productionPlan').PlanStage; changedAt: string; previous: import('./productionPlan').PlanStageRecord['result'] }[];
 }
 export type OrderProductInput = Omit<OrderProduct, 'id' | 'productName' | 'brand' | 'stages' | 'stockTransfer' | 'legacy'>;
-export interface ProductionOrderInput { name: string; customerId: string; date: string; dueDate: string; customerReference: string; customerNote: string; note: string; product: OrderProductInput }
+export interface ProductionOrderInput { name: string; customerId: string; date: string; dueDate: string; customerReference: string; customerNote: string; note: string; product: OrderProductInput; orderNo?: string }
 export interface ProductionBrand { id: string; name: string }
 export interface OrderDraft { id: string; revision: number; updatedAt: string; input: ProductionOrderInput }
 export const productionStarted = (o: ProductionOrder) => !!o.productionStartedAt || o.product.stages.length > 0 || !!o.product.legacy;
@@ -38,6 +40,7 @@ export const emptyPackaging = (): PackagingInfo => ({ type: '', sizeMode: '', no
 export const historicalBrandId = (name: string) => `historical-brand:${encodeURIComponent(name.trim().toLocaleLowerCase('tr-TR'))}`;
 
 export function validateOrderProduct(product: OrderProduct) {
+  validateSampleImages(product.sampleImages);
   for (const info of [product.embroidery, product.printing]) if (info?.color !== undefined && (typeof info.color !== 'string' || info.color.length > 200)) throw new Error('İşlem rengi en fazla 200 karakter olabilir.');
   if ([product.dropShoulder, product.sideSlit].some((v) => v !== undefined && typeof v !== 'boolean')) throw new Error('Ürün özellikleri geçersiz.');
   if (product.printing) { validateNotes(product.printing.notes); if ([product.printing.position, product.printing.size, product.printing.technicalNote, ...product.printing.colorNotes.map((r) => r.note)].some((s) => typeof s !== 'string' || s.length > 2000)) throw new Error('Baskı bilgileri geçersiz.'); }

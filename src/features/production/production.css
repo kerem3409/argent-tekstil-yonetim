@@ -183,3 +183,94 @@
 @media print { .general-order-sheet.production-paper { max-width: none; } .general-order-sheet .ws-table { min-width: 0; } .general-order-sheet .table-scroll { overflow: visible; } }
 
 .general-order-sheet .ws-table td, .general-order-sheet .ws-table th { padding: 9px 10px; font-size: 12px; }
+.order-number-fields { display: flex; gap: 10px; max-width: 380px; }
+.order-number-fields > label { min-width: 0; flex: 1; }
+.order-product-with-samples { display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 16px; align-items: start; }
+.form-sample-sidebar { position: sticky; top: 88px; padding: 16px; background: white; border: 1px solid #dce2ea; border-radius: 8px; }
+.form-sample-sidebar h2, .order-samples h3 { font-size: 14px; margin: 0 0 10px; }
+.sample-thumbnails { display: flex; gap: 6px; overflow-x: auto; }
+.sample-thumbnail { flex: 0 0 calc((100% - 12px) / 3); min-width: 0; }
+.sample-preview { display: block; background: white; border: 1px solid #dce2ea; padding: 2px; border-radius: 4px; width: 100%; cursor: zoom-in; }
+.sample-preview img { display: block; width: 100%; height: 76px; object-fit: contain; }
+.sample-controls { display: flex; align-items: center; gap: 3px; font-size: 10px; margin-top: 5px; }
+.sample-controls label, .sample-upload { position: relative; cursor: pointer; border: 1px solid #dce2ea; border-radius: 4px; padding: 4px; }
+.sample-controls input[type=file], .sample-upload input[type=file] { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; cursor: pointer; }
+.sample-controls label:focus-within, .sample-upload:focus-within { outline: 2px solid #244b73; }
+.sample-controls button { border: 1px solid #dce2ea; background: #fff; cursor: pointer; }
+.sample-upload { display: inline-block; font-size: 12px; margin-top: 8px; }
+.sample-large { display: block; max-width: 100%; max-height: 72vh; object-fit: contain; margin: auto; }
+.feature-checkbox { display: inline-flex; align-items: center; gap: 7px; padding: 5px 8px; border: 1px solid #dce2ea; border-radius: 4px; font-size: 13px; }
+.feature-checkbox input { width: auto; accent-color: #244b73; }
+.feature-tags { display: flex; flex-wrap: wrap; gap: 5px; list-style: none; padding: 0; margin: 8px 0; }
+.feature-tags li { border: 1px solid #dce2ea; padding: 3px 7px; border-radius: 4px; font-size: 12px; }
+.plan-note-list { max-width: 520px; }
+.plan-note-list:has([aria-label="Madde ekle"]) { max-width: 430px; margin-top: 10px; }
+.package-form-fields { display: grid; grid-template-columns: 130px minmax(130px, 200px) minmax(150px, 240px); gap: 12px; }
+.package-form-fields label:last-child { grid-column: 1 / -1; }
+.application-form-fields { display: grid; grid-template-columns: 160px minmax(0, 520px); gap: 12px; align-items: start; }
+.application-operation-fields { grid-column: 2; }
+.application-operation-fields .ws-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.production-print-only { display: none; }
+.general-order-sheet .common-size-table th, .general-order-sheet .common-size-table td { border: 1px solid #777; }
+@media(max-width:600px) { .application-form-fields { grid-template-columns: minmax(0,1fr); } .application-operation-fields { grid-column: 1; } .application-form-fields > label { max-width: 200px; } }
+.order-date-stack { display: flex; gap: 12px; }
+.production-record-list .ws-table td { padding: 8px 10px; }
+.production-record-main td { border-top: 1px solid #cbd5e1; border-bottom: 0; }
+.production-record-main td:first-child, .production-record-actions td { border-left: 1px solid #cbd5e1; }
+.production-record-main td:last-child, .production-record-actions td { border-right: 1px solid #cbd5e1; }
+.production-record-actions td { border-bottom: 1px solid #cbd5e1; background: #f8fafc; }
+.production-record-footer { display: flex; align-items: center; gap: 16px; }
+.production-record-footer > span { font-size: 11px; color: #62728a; }
+.general-order-sheet.production-paper { background: white; padding: 18px; border: 1px solid #dce2ea; }
+.general-order-sheet > section { padding: 10px 0; border: 0; border-bottom: 1px solid #dce2ea; margin: 0; }
+.general-order-sheet h2, .general-order-sheet .ws-card h2 { margin: 0 0 8px; font-size: 15px; }
+.general-order-sheet > h1 { margin: 0 0 10px; font-size: 20px; }
+.general-order-sheet .sheet-order-product { display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 16px; }
+.general-order-sheet .production-summary { grid-template-columns: repeat(4, minmax(0,1fr)); gap: 8px 12px; margin: 8px 0; }
+.general-order-sheet .production-summary dd { margin: 2px 0 0; }
+.general-order-sheet .order-samples { min-width: 0; }
+.general-order-sheet .order-quantity-tracking .ws-card { border: 0; padding: 12px 0; margin: 0; }
+.order-quantity-tracking .quantity-sheet-table { table-layout: fixed; min-width: 700px; }
+.quantity-sheet-table th:nth-child(7), .quantity-sheet-table th:nth-child(8) { width: 20%; }
+.quantity-date-value { white-space: nowrap; }
+.order-quantity-tracking .quantity-sheet-table td { vertical-align: middle; }
+.order-quantity-tracking .quantity-sheet-table .quantity-firms, .order-quantity-tracking .quantity-sheet-table .quantity-dates { text-align: left; vertical-align: top; }
+.quantity-assignments { list-style: none; margin: 0; padding: 0; font-size: 11px; line-height: 1.45; }
+.quantity-assignments li + li { margin-top: 4px; }
+.quantity-assignments strong { font-weight: 600; }
+.general-order-sheet .sheet-series .production-summary { grid-template-columns: repeat(4,minmax(0,1fr)); }
+.general-order-sheet .sheet-series .common-size-display { margin: 6px 0; }
+.general-order-sheet .decoration-info { display: block; }
+.general-order-sheet .general-costs .ws-table { min-width: 440px; }
+.general-order-sheet .general-costs .ws-table th, .general-order-sheet .general-costs .ws-table td { padding: 5px 8px; }
+@media(max-width:900px) { .order-product-with-samples { grid-template-columns: minmax(0,1fr); } .form-sample-sidebar { position: static; max-width: 300px; } .general-order-sheet .sheet-order-product { grid-template-columns: minmax(0,1fr); } .general-order-sheet .order-samples { max-width: 250px; } .general-order-sheet .production-summary, .general-order-sheet .sheet-series .production-summary { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media(max-width:600px) { .package-form-fields { grid-template-columns: repeat(2,minmax(0,1fr)); } .package-form-fields label:last-child { grid-column: 1 / -1; } .order-date-stack { max-width: 100%; } .production-record-footer { flex-wrap: wrap; gap: 6px; } .general-order-sheet.production-paper { padding: 10px; } }
+@media print {
+  .production-print-only { display: block; }
+  @page { size: A4 portrait; margin: 10mm; }
+  .general-order-sheet.production-paper { border: 0; padding: 0; font-size: 10pt; line-height: 1.25; }
+  .general-order-sheet > h1 { font-size: 15pt; margin: 0 0 3mm; }
+  .general-order-sheet > section { padding: 1.5mm 0; }
+  .general-order-sheet h2, .general-order-sheet .ws-card h2 { font-size: 11pt; margin: 0 0 2mm; }
+  .general-order-sheet .sheet-order-product { display: grid; grid-template-columns: minmax(0,1fr) 57mm; gap: 3mm; }
+  .general-order-sheet .production-summary, .general-order-sheet .sheet-series .production-summary { grid-template-columns: repeat(4,minmax(0,1fr)); gap: 2mm; font-size: 9.5pt; }
+  .general-order-sheet .order-samples { max-width: none; }
+  .general-order-sheet .sample-preview img { height: 24mm; }
+  .general-order-sheet .sample-preview { border: 1px solid #aaa; padding: 0; }
+  .general-order-sheet .sample-thumbnails { overflow: visible; }
+  .general-order-sheet .sample-preview button, .general-order-sheet .record-dialog-backdrop { display: none !important; }
+  .general-order-sheet .ws-table, .general-order-sheet .quantity-sheet-table { min-width: 0 !important; table-layout: fixed; width: 100%; }
+  .general-order-sheet .ws-table th, .general-order-sheet .ws-table td { font-size: 9.5pt; padding: 1.5mm 1mm; }
+  .general-order-sheet .quantity-assignments { font-size: 9pt; line-height: 1.25; }
+  .general-order-sheet .quantity-assignments li + li { margin-top: 1mm; }
+  .general-order-sheet .quantity-totals, .general-order-sheet .feature-tags li { font-size: 9.5pt; }
+  .general-order-sheet .order-quantity-tracking .ws-card { padding: 2mm 0; }
+  .general-order-sheet .ws-card { border: 0; margin: 0; box-shadow: none; }
+  .general-order-sheet p { margin: 1.5mm 0; }
+  .general-order-sheet tr, .general-order-sheet .sheet-series, .general-order-sheet .sheet-application { break-inside: avoid; }
+  .general-order-sheet .general-costs { break-inside: avoid; }
+  .general-order-sheet .general-costs .ws-table th, .general-order-sheet .general-costs .ws-table td { padding: 1mm; }
+  .general-order-sheet .common-size-table th, .general-order-sheet .common-size-table td { padding: 1mm; font-size: 9.5pt; border: 1px solid #777; }
+  .general-order-sheet .sheet-series .production-summary:empty { display: none; }
+  .general-order-sheet .production-summary { margin: 1.5mm 0; }
+}

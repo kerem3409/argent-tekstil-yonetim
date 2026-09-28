@@ -28,6 +28,33 @@ async function setup(costData?: CostSourceData) {
   return { values, storage, contacts, supplier, customer, products, orders, input, fail: (v: boolean) => { failNetwork = v; } };
 }
 
+test('Manuel sipariş no benzersizdir; otomatik sayaç manuel numarayı atlar, arşiv numarasını yeniden kullanmaz', async () => {
+  const f = await setup();
+  const manual = await f.orders.create({ ...f.input, orderNo: 'SP-001' });
+  const automatic = await f.orders.create(f.input);
+  assert.notEqual(automatic.orderNo, manual.orderNo);
+  const before = [...f.values.entries()];
+  await assert.rejects(f.orders.create({ ...f.input, orderNo: 'sp-001' }), /kullanıl/);
+  assert.deepEqual([...f.values.entries()], before);
+  await f.orders.setArchived(manual.id, manual.revision, true);
+  await assert.rejects(f.orders.create({ ...f.input, orderNo: ' SP-001 ' }), /kullanıl/);
+});
+
+test('Numuneler üçle sınırlıdır, başladıktan sonra değişebilir; eski alanlar ve üretim sonuçları korunur', async () => {
+  const f = await setup(), images = [1,2,3].map((n) => ({ id: String(n), name: `Numune ${n}`, dataUrl: 'data:image/png;base64,YQ==' }));
+  let o = await f.orders.create({ ...f.input, customerReference: 'ESKİ-REF', product: { ...f.input.product, sampleImages: images, packaging: { ...f.input.product.packaging, labelingNote: 'Eski etiket' } } });
+  assert.deepEqual((await f.orders.list())[0].product.sampleImages, images);
+  o = await f.orders.savePlanning(o.id, o.revision, [{ type: 'Kesim', companyId: f.supplier.id, plannedStart: o.date, dueDate: o.dueDate }]);
+  o = await f.orders.beginPlannedStage(o.id, o.revision, 'Kesim');
+  o = await f.orders.recordStageResult(o.id, o.revision, 'Kesim', [{ color: 'Siyah', quantity: 105, kg: 50 }], []);
+  const stages = structuredClone(o.product.stages), plans = structuredClone(o.stagePlans);
+  await assert.rejects(f.orders.saveSampleImages(o.id, o.revision, [...images, { ...images[0], id: '4' }]), /3/);
+  o = await f.orders.saveSampleImages(o.id, o.revision, images.slice(1));
+  assert.deepEqual(o.product.stages, stages); assert.deepEqual(o.stagePlans, plans);
+  assert.equal(o.customerReference, 'ESKİ-REF'); assert.equal(o.product.packaging.labelingNote, 'Eski etiket');
+  assert.deepEqual((await f.orders.list())[0].product.sampleImages, images.slice(1));
+});
+
 test('450 adet hazır alım 90.000 TL tek kaynak borç; satış, sayım ve iadeler stok/cariyi korur', async () => {
   const f = await setup();
   await f.products.create({ ...newStockInput(), name: 'Polo Yaka', brand: 'Palo', fabric: '30/2 Pike', grammage: '220 gr', colors: [{ color: 'Siyah', quantity: 200 }, { color: 'Beyaz', quantity: 100 }, { color: 'Lacivert', quantity: 150 }], series: 'Yetişkin', assortment: 'S1 M1 L1 XL1 2XL1 3XL1', packSize: 6, supplierId: f.supplier.id, unitCost: 200, postAccount: true });

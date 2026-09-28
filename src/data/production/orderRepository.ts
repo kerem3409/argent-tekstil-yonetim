@@ -19,6 +19,8 @@ import { productionCosts, validateCostPrices } from '../../domain/productionCost
 import type { CostPrices } from '../../domain/productionCosts';
 import { automaticCostSources, costSources, validateSheetCosts } from '../../domain/generalSheetCosts.ts';
 import type { CostSourceData, SheetCostSettings } from '../../domain/generalSheetCosts';
+import { validateSampleImages } from '../../domain/sampleImages.ts';
+import type { SampleImage } from '../../domain/sampleImages';
 
 interface Dependencies { contacts: Pick<ContactRepository, 'get'>; definitions: Pick<ProductDefinitionRepository, 'requireActive'>; products: Pick<ProductRepository, 'load' | 'receiveProduction'>; costData?: () => Promise<CostSourceData> }
 export function createOrderRepository(storage: () => StoragePort, deps: Dependencies, lock?: StoreLock) {
@@ -65,6 +67,10 @@ export function createOrderRepository(storage: () => StoragePort, deps: Dependen
     async load() { return all(await store.load()); },
     async list() { return (await all(await store.load())).orders; },
     async listBrands() { return brands(await store.load()); },
+    async saveSampleImages(id: string, revision: number, images: SampleImage[]) {
+      validateSampleImages(images);
+      return store.transact(async (data) => { const o = await find(data, id, revision); o.product.sampleImages = structuredClone(images); return save(data, o); });
+    },
     async saveSheetCosts(id: string, revision: number, settings: SheetCostSettings) {
       validateSheetCosts(settings);
       return store.transact(async (data) => {
@@ -172,9 +178,12 @@ export function createOrderRepository(storage: () => StoragePort, deps: Dependen
     async create(input: ProductionOrderInput, sourceDraftId?: string) {
       await customer(input.customerId);
       return store.transact(async (data) => { const existing = (await all(data)).orders; const converted = sourceDraftId && existing.find((o) => o.sourceDraftId === sourceDraftId); if (converted) return converted; const p = await product(data, input); let number = data.nextProductionOrder ?? 1;
-        while (existing.some((o) => o.orderNo === `SP-${String(number).padStart(3, '0')}`)) number++;
-        data.nextProductionOrder = number + 1; const id = uid(), now = new Date().toISOString();
-        const o: ProductionOrder = { name: input.name.trim(), customerId: input.customerId, date: input.date, dueDate: input.dueDate, customerReference: input.customerReference, customerNote: input.customerNote, note: input.note, product: p, workflowVersion: 4, sourceDraftId, id, orderNo: `SP-${String(number).padStart(3, '0')}`, revision: 0, createdAt: now, updatedAt: now, stockSourceId: `order:${id}` };
+        const manual = input.orderNo?.trim();
+        if (manual && !/^[\p{L}\p{N}][\p{L}\p{N} ._/-]{0,39}$/u.test(manual)) throw new Error('Sipariş No en fazla 40 karakter olmalı; harf, rakam, boşluk, nokta, tire, alt çizgi veya / kullanın.');
+        if (manual && existing.some((o) => colorKey(o.orderNo) === colorKey(manual))) throw new Error('Bu sipariş numarası daha önce kullanılmış. Farklı bir numara girin.');
+        while (existing.some((o) => colorKey(o.orderNo) === colorKey(`SP-${String(number).padStart(3, '0')}`))) number++;
+        if (!manual) data.nextProductionOrder = number + 1; const id = uid(), now = new Date().toISOString();
+        const o: ProductionOrder = { name: input.name.trim(), customerId: input.customerId, date: input.date, dueDate: input.dueDate, customerReference: input.customerReference, customerNote: input.customerNote, note: input.note, product: p, workflowVersion: 4, sourceDraftId, id, orderNo: manual || `SP-${String(number).padStart(3, '0')}`, revision: 0, createdAt: now, updatedAt: now, stockSourceId: `order:${id}` };
         (data.productionOrders ??= []).push(o); return o;
       });
     },
