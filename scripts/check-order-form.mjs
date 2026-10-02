@@ -348,7 +348,7 @@ test('Üretim siparişleri: gerçek formlar, tek detay, çıktılar ve yaşam d�
         await contactRepository.update(firm.id, { ...firm, name: 'Güncel Kesim Firması' });
       });
       await waitFor(() => tracking()?.textContent.includes('510 (+10)') && body().includes('Güncel Kesim Firması'));
-      await waitFor(() => !!document.querySelector('.sample-thumbnail') && document.querySelector('.general-costs')?.textContent.includes('4.900,00 TL'));
+      await waitFor(() => !!document.querySelector('.sample-thumbnail') && document.querySelector('.general-costs')?.textContent.includes('5.000,00 TL'));
       assert.ok(document.querySelector('.quantity-assignment-pairs').textContent.includes('04.10.2026'));
       assert.ok(tracking().textContent.includes('Genel Fark: +10'));
       assert.equal(document.querySelectorAll('.order-quantity-tracking table').length, 1);
@@ -365,23 +365,45 @@ test('Üretim siparişleri: gerçek formlar, tek detay, çıktılar ve yaşam d�
       await click(button('Yazdır / PDF')); assert.equal([...document.querySelectorAll('input[name=printCosts]')][0].checked, true);
       await click(button('Vazgeç'));
     });
-    await t.test('Detay accordionları ve maliyet fiyatı yeniden açıldığında kalıcıdır', async () => {
+    await t.test('Yeni siparişte maliyet ve aksesuarlar taslakta ve kayıtta korunur', async () => {
+      await createOrder({ pause: true });
+      await fill(document.querySelector('[aria-label="Kumaş Birim Fiyatı"]'), '100');
+      await click(button('+ Aksesuar Ekle'));
+      await fill(field('Aksesuar 1 Adı'), 'Ense etiketi');
+      await fill(field('Aksesuar 1 Miktar'), '500');
+      await fill(field('Aksesuar 1 Birim Fiyatı'), '0.50');
+      const supplier = (await contactRepository.list()).find(c => c.name === 'Kesim Atölyesi');
+      await fill(field('Aksesuar 1 Tedarikçi'), supplier.id);
+      await navigate('/uretim/siparisler'); await fill(field('Durum'), 'Taslak'); await click(button('Taslağa Devam Et'));
+      assert.equal(field('Aksesuar 1 Adı').value, 'Ense etiketi');
+      assert.equal(field('Aksesuar 1 Miktar').value, '500');
+      assert.equal(document.querySelector('[aria-label="Kumaş Birim Fiyatı"]').value, '100');
+      await click(button('Siparişi Kaydet'));
+      assert.equal(document.querySelector('[role=alert]'), null, body());
+      const saved = (await orderRepository.list())[0];
+      assert.equal(saved.costing.accessories[0].priceMinor, 50);
+      assert.equal(saved.costing.accessories[0].companyId, supplier.id);
+      assert.equal(saved.costPricesMinor.Kumaş, 10000);
+    });
+    await t.test('Maliyetler üretim kaydında açık, Genel Föy salt okunur ve fiyatlar kalıcıdır', async () => {
       const o = await createOrder();
       const disclosures = [...document.querySelectorAll('details.production-disclosure')];
-      assert.ok(disclosures.length >= 7); assert.ok(disclosures.every((d) => !d.open));
-      const costs = disclosures.find((d) => d.querySelector('summary').textContent.includes('Maliyetler'));
-      await click(costs.querySelector('summary')); assert.equal(costs.open, true); await click(button('Genel Föy Maliyetlerini Aç')); await waitFor(() => !!document.querySelector('[aria-label="Kumaş Birim Fiyatı"]'));
-      await fill(document.querySelector('[aria-label="Kumaş Birim Fiyatı"]'), '100'); await click(button('Maliyetleri Kaydet'));
-      assert.equal((await orderRepository.list())[0].costPricesMinor.Kumaş, 10000);
-      await navigate('/uretim/siparisler'); await navigate(`/uretim/siparisler?id=${o.id}&print=Genel`); await waitFor(() => !!document.querySelector('[aria-label="Kumaş Birim Fiyatı"]'));
-      assert.equal(document.querySelector('[aria-label="Kumaş Birim Fiyatı"]').value, '100'); assert.ok(body().includes('henüz hesaplanamadı'));
+      assert.ok(disclosures.length >= 6); assert.ok(disclosures.every((d) => !d.open));
+      assert.ok(!body().includes('Genel Föy Maliyetlerini Aç'));
+      await waitFor(() => !!document.querySelector('[aria-label="Kumaş Birim Fiyatı"]') && !document.querySelector('[aria-label="Kumaş Birim Fiyatı"]').disabled);
+      await fill(document.querySelector('[aria-label="Kumaş Birim Fiyatı"]'), '100');
+      await click(button('+ Ek Maliyet Ekle')); await fill(field('Ek Maliyet 1 Açıklama'), 'Sevkiyat'); await fill(field('Ek Maliyet 1 Türü'), 'Lojistik'); await fill(field('Ek Maliyet 1 Tutar (TL)'), '250');
+      await click(button('Maliyetleri Kaydet')); assert.equal(document.querySelector('[role=alert]'), null, body());
+      const saved = (await orderRepository.list())[0]; assert.equal(saved.costPricesMinor.Kumaş, 10000); assert.equal(saved.costing.extras[0].amountMinor, 25000);
+      await navigate('/uretim/siparisler'); await navigate('/uretim/siparisler?id='+o.id);
+      await waitFor(() => !!document.querySelector('[aria-label="Kumaş Birim Fiyatı"]'));
+      assert.equal(document.querySelector('[aria-label="Kumaş Birim Fiyatı"]').value, '100'); assert.equal(field('Ek Maliyet 1 Tutar (TL)').value, '250');
+      await click(button('Genel Sipariş Föyü')); await waitFor(() => !!document.querySelector('.general-costs tbody'));
+      assert.ok(body().includes('Henüz hesaplanamadı')); assert.ok(body().includes('250,00 TL'));
+      assert.equal(document.querySelectorAll('.general-costs input').length, 0);
       assert.ok(!body().includes('Üretim Özeti')); assert.ok(body().includes('Nakış / Baskı yok'));
-      await fill(field('Kumaş Tahmini Tutar (TL)'), '5000'); await click(button('Föy Maliyetlerini Kaydet'));
-      assert.equal((await orderRepository.list())[0].sheetCosts.estimated.Kumaş, 500000);
       await navigate('/uretim/siparisler');
       assert.deepEqual([...document.querySelector('.production-row-actions').querySelectorAll('a,button')].map(n=>n.textContent), ['Genel Föy','DETAY','Arşive At','Sil']);
-      await click(button('Genel Föy')); await waitFor(() => !!document.querySelector('[aria-label="Kumaş Birim Fiyatı"]'));
-      assert.equal(field('Kumaş Tahmini Tutar (TL)').value, '5000');
     });
   } finally {
     if (root) await act(async () => root.unmount()); await server.close(); dom.window.close();

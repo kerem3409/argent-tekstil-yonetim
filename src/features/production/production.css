@@ -243,6 +243,11 @@
 .quantity-assignment-pair > time { display: flex; align-items: center; border-left: 1px solid #dce2ea; white-space: nowrap; }
 .print-cost-choice { display: inline-flex; align-items: center; gap: 6px; margin: 12px 18px 12px 0; }
 .print-cost-choice input { width: auto; }
+.order-cost-prices { display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap: 12px; }
+.order-accessory-row, .order-extra-cost-row { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; border-bottom: 1px solid #dce2ea; padding: 12px 0; align-items: end; }
+.order-accessory-row p { grid-column: 1 / 3; font-size: 12px; }
+.order-accessory-row .compact-control, .order-extra-cost-row .compact-control { justify-self: end; }
+@media(max-width:600px) { .order-accessory-row, .order-extra-cost-row { grid-template-columns: repeat(2,minmax(0,1fr)); } .order-accessory-row p { grid-column: 1 / -1; } }
 @media print {
   html:not([data-general-sheet-print-costs="yes"]) .general-order-sheet .general-costs { display: none !important; }
   .record-dialog-backdrop { display: none !important; }

@@ -1,5 +1,5 @@
 import { amount } from './common.ts';
-import { activeStages, itemStatus, stageRecord } from './productionPlan.ts';
+import { activeStages, colorKey, itemStatus, stageInput, stageRecord } from './productionPlan.ts';
 import type { PlanStage } from './productionPlan';
 import type { ProductionOrder } from './productionOrder';
 
@@ -12,13 +12,13 @@ export function validateCostPrices(prices: CostPrices) {
 export function productionCosts(order: ProductionOrder, prices = order.costPricesMinor ?? {}) {
   validateCostPrices(prices);
   const cut = stageRecord(order.product, 'Kesim')?.result;
-  const cutQuantity = cut?.rows.reduce((n, r) => n + r.quantity, 0);
+  const finalQuantity = stageRecord(order.product, 'Ütü & Paket')?.result?.rows.reduce((n,r) => n+r.quantity,0);
   const kg = cut && cut.rows.every((r) => r.kg !== undefined) ? cut.rows.reduce((n, r) => n + (r.kg ?? 0), 0) : undefined;
   const rows = (['Kumaş', ...activeStages(order.product)] as CostKey[]).map((key) => {
     const result = key === 'Kumaş' ? undefined : stageRecord(order.product, key as PlanStage)?.result;
-    const quantity = key === 'Kumaş' ? kg : result?.rows.reduce((n, r) => n + r.quantity, 0);
+    const quantity = key === 'Kumaş' ? kg : result ? result.rows.reduce((n,r) => n + Math.max(r.quantity, stageInput(order.product, key as PlanStage).find((v) => colorKey(v.color) === colorKey(r.color))?.quantity ?? 0), 0) : undefined;
     const total = quantity === undefined ? undefined : amount(quantity, prices[key] ?? 0);
-    const denominator = key === 'Kumaş' ? cutQuantity : quantity;
+    const denominator = finalQuantity;
     return { key, quantity, price: prices[key] ?? 0, total, perUnit: total !== undefined && denominator ? Math.round(total / denominator) : undefined };
   });
   const total = rows.reduce((n, r) => n + (r.total ?? 0), 0);

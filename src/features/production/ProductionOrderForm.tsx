@@ -1,3 +1,8 @@
+import { OrderCostFields } from './OrderCostFields';
+import { emptyOrderCosting } from '../../domain/orderCosting';
+import type { CostPrices } from '../../domain/productionCosts';
+import { inventory } from '../../data/inventory';
+import { useResource } from '../shared/WorkshopUI';
 import { SampleImages } from './SampleImages';
 import { ProductionDialog } from './ProductionDialog';
 import { useEffect, useRef, useState } from 'react';
@@ -28,6 +33,9 @@ export function ProductionOrderForm({ initial, draft, customerId: presetCustomer
   const [draftId] = useState(draft?.id ?? crypto.randomUUID());
   const revision = useRef(draft?.revision ?? 0), saved = useRef(false);
   const source = initial ?? draft?.input;
+  const [costPrices, setCostPrices] = useState<CostPrices>({ ...source?.costPricesMinor });
+  const [costing, setCosting] = useState(() => structuredClone(source?.costing ?? emptyOrderCosting()));
+  const materialStock = useResource(inventory.materials.load);
   const [general, setGeneral] = useState({ name: source?.name ?? '', date: source?.date ?? today(), dueDate: source?.dueDate ?? '', customerReference: source?.customerReference ?? '', customerNote: source?.customerNote ?? '', note: source?.note ?? '' });
   const [numberMode, setNumberMode] = useState(draft?.input.orderNo ? 'Manuel' : 'Otomatik'), [manualNumber, setManualNumber] = useState(draft?.input.orderNo ?? ''), [photoBusy, setPhotoBusy] = useState(false);
   const [draftError, setDraftError] = useState('');
@@ -35,9 +43,9 @@ export function ProductionOrderForm({ initial, draft, customerId: presetCustomer
   const [customerId, setCustomerId] = useState(source?.customerId ?? presetCustomer ?? '');
   useEffect(() => {
     if (initial || saved.current) return;
-    try { const next = orderDrafts.save(draftId, revision.current, { ...general, name: general.name || product.modelName, orderNo: numberMode === 'Manuel' ? manualNumber : undefined, customerId, product }); revision.current = next.revision; setDraftError(''); if (params.get('draft') !== draftId) { const nextParams = new URLSearchParams(params); nextParams.set('draft', draftId); setParams(nextParams, { replace: true }); } }
+    try { const next = orderDrafts.save(draftId, revision.current, { ...general, name: general.name || product.modelName, orderNo: numberMode === 'Manuel' ? manualNumber : undefined, customerId, product, costPricesMinor: costPrices, costing }); revision.current = next.revision; setDraftError(''); if (params.get('draft') !== draftId) { const nextParams = new URLSearchParams(params); nextParams.set('draft', draftId); setParams(nextParams, { replace: true }); } }
     catch (e) { setDraftError(e instanceof Error ? e.message : 'Taslak kaydedilemedi.'); }
-  }, [general, customerId, product, draftId, initial, numberMode, manualNumber]);
+  }, [general, customerId, product, draftId, initial, numberMode, manualNumber, costPrices, costing]);
   const [customerOptions, setCustomerOptions] = useState(contacts), [productOptions, setProductOptions] = useState(definitions), [brandOptions, setBrandOptions] = useState(brands);
   const [quick, setQuick] = useState(''); let savedId = initial?.id ?? '';
   const update = (next: Partial<OrderProductInput>) => setProduct((p) => ({ ...p, ...next }));
@@ -51,7 +59,7 @@ export function ProductionOrderForm({ initial, draft, customerId: presetCustomer
       else { const b = await orderRepository.createBrand(name); setBrandOptions((list) => [...list.filter((v) => v.id !== b.id), b]); update({ brandId: b.id }); }
     }}><Input label={quick === 'Ürün' ? 'Ürün Türü Adı *' : `${quick} Adı *`} name="quickName" required /></Form></ProductionDialog>}
     <Form label={initial ? 'Siparişi Güncelle' : 'Siparişi Kaydet'} cancel={cancel} onDone={() => done(savedId)} onSubmit={async (f) => {
-      const input = { name: general.name || product.modelName, orderNo: numberMode === 'Manuel' ? manualNumber : undefined, customerId, date: text(f, 'date'), dueDate: text(f, 'dueDate'), customerReference: general.customerReference, customerNote: text(f, 'customerNote'), note: text(f, 'note'), product: { ...product, printing: { ...(product.printing ?? emptyEmbroidery()), notes: (product.printing?.notes ?? []).map((s) => s.trim()).filter(Boolean), colorNotes: product.printing?.colorNotes ?? [] }, instructions: product.instructions.map((s) => s.trim()).filter(Boolean), embroidery: { ...product.embroidery, notes: product.embroidery.notes.map((s) => s.trim()).filter(Boolean), colorNotes: product.embroidery.colorNotes } } };
+      const input = { costPricesMinor: costPrices, costing, name: general.name || product.modelName, orderNo: numberMode === 'Manuel' ? manualNumber : undefined, customerId, date: text(f, 'date'), dueDate: text(f, 'dueDate'), customerReference: general.customerReference, customerNote: text(f, 'customerNote'), note: text(f, 'note'), product: { ...product, printing: { ...(product.printing ?? emptyEmbroidery()), notes: (product.printing?.notes ?? []).map((s) => s.trim()).filter(Boolean), colorNotes: product.printing?.colorNotes ?? [] }, instructions: product.instructions.map((s) => s.trim()).filter(Boolean), embroidery: { ...product.embroidery, notes: product.embroidery.notes.map((s) => s.trim()).filter(Boolean), colorNotes: product.embroidery.colorNotes } } };
       if (draftError) throw new Error(draftError); if (photoBusy) throw new Error('Görsellerin hazırlanmasını bekleyin.'); if (numberMode === 'Manuel' && !manualNumber.trim()) throw new Error('Manuel sipariş numarası girin.');
       const o = initial ? await orderRepository.update(initial.id, initial.revision, input) : await orderRepository.create(input, draftId); savedId = o.id; saved.current = true;
     }}>
@@ -65,6 +73,7 @@ export function ProductionOrderForm({ initial, draft, customerId: presetCustomer
   return <div className="application-operation-fields" key={type}><h3 className="sr-only">{type}</h3><div className="ws-grid">{(['position', 'size'] as const).map((field) => <Field key={field} label={type + ' ' + { position: 'Konumu', size: 'Ölçüsü', color: 'Rengi' }[field]}><input maxLength={2000} value={info[field] ?? ''} onChange={(e) => update({ [key]: { ...info, [field]: e.target.value } })} /></Field>)}</div><CompactNotes title={type + ' Uygulama Notu'} value={info.notes} onChange={(notes) => update({ [key]: { ...info, notes } })} />{info.technicalNote && <Field label={type + ' Teknik Not'}><textarea maxLength={2000} value={info.technicalNote} onChange={(e) => update({ [key]: { ...info, technicalNote: e.target.value } })} /></Field>}</div>;
 })}</div></Section>
 
+      <Section title="Maliyetler"><OrderCostFields prices={costPrices} costing={costing} stages={product.enabledStages} contacts={customerOptions} materials={materialStock.data?.records ?? []} date={general.date} onPrices={setCostPrices} onCosting={setCosting} />{materialStock.error && <p role="alert">{materialStock.error}</p>}</Section>
       <Section title="Genel Not / Diğer Bilgiler"><Field label="Genel Not"><textarea name="note" maxLength={2000} defaultValue={general.note} /></Field></Section>
     </Form>
   </div>;

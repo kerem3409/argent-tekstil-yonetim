@@ -14,7 +14,9 @@ import { filterLiveOrders, operationDate } from '../src/domain/productionPlannin
 import { costSources, automaticCostSources, generalSheetCosts } from '../src/domain/generalSheetCosts.ts';
 import type { CostSourceData } from '../src/domain/generalSheetCosts';
 import { stageGroups } from '../src/domain/productionPresentation.ts';
-import { generalSheetOrderCosts } from '../src/domain/generalSheetOrderCosts.ts';
+import { actualProductionCosts, emptyOrderCosting, accessoryAvailability } from '../src/domain/orderCosting.ts';
+import { createFinanceRepository } from '../src/data/finance/repository.ts';
+import { createInventoryRepositories } from '../src/data/inventory/repository.ts';
 
 async function setup(costData?: CostSourceData) {
   const values = new Map<string, string>(); let failNetwork = false;
@@ -29,23 +31,51 @@ async function setup(costData?: CostSourceData) {
   return { values, storage, contacts, supplier, customer, products, orders, input, fail: (v: boolean) => { failNetwork = v; } };
 }
 
-test('Genel Föy sipariş bazlı maliyet: 60 TL × 1500, kaynak kayıtları ve gerçekleşen hesap korunur', async () => {
-  const f = await setup(); let o = await f.orders.create({ ...f.input, product: { ...f.input.product, colors: [{ color: 'Siyah', quantity: 1500 }] } });
-  o = await f.orders.saveCosts(o.id, o.revision, { Kumaş: 10000, Kesim: 200, Dikim: 300 });
-  o = await f.orders.savePlanning(o.id, o.revision, [{ type: 'Kesim', companyId: f.supplier.id, plannedStart: o.date, dueDate: o.dueDate }]);
-  o = await f.orders.beginPlannedStage(o.id, o.revision, 'Kesim');
-  o = await f.orders.recordStageResult(o.id, o.revision, 'Kesim', [{ color: 'Siyah', quantity: 1000, kg: 600 }], []);
-  const before = JSON.stringify(o), actual = productionCosts(o).total;
-  const result = generalSheetOrderCosts(o, []);
-  assert.equal(result.rows[0].unit, 6000); assert.equal(result.rows[0].total, 9000000);
-  assert.equal(result.rows.find((r) => r.name === 'Kesim')?.total, 300000);
-  assert.equal(result.unit, 6500); assert.equal(result.total, 9750000);
-  assert.equal(JSON.stringify(o), before); assert.equal(productionCosts(o).total, actual);
-  const source = { id: 'cut', category: 'Kesim' as const, description: '', date: o.date, total: 400000, quantity: 1000, unit: 'adet', href: '', operation: 'Kesim' };
-  const linked = generalSheetOrderCosts({ ...o, sheetCosts: { estimated: {}, sources: ['cut'] } }, [source]);
-  assert.equal(linked.rows.find((r) => r.name === 'Kesim')?.unit, 400);
-  assert.equal(linked.rows.find((r) => r.name === 'Kesim')?.total, 600000);
-  assert.ok(!JSON.stringify(generalSheetOrderCosts({ ...o, product: { ...o.product, colors: [] } }, [])).includes('Infinity'));
+const emptyCostData = (): CostSourceData => ({ fabrics: { version: 1, records: [], movements: [] }, materials: { version: 1, records: [], movements: [] }, production: { version: 1, plans: [], jobs: [], stages: [], nextPlan: 1, nextJob: 1, nextStage: 1 }, finance: { version: 1, moneyMovements: [], manualDebts: [], expenses: [] } });
+
+test('Gerçek maliyet ve cari: fire harcaması kalır, ödeme borcu düşürür, düzeltme ve arşiv hareketi çoğaltmaz', async () => {
+  const data = emptyCostData(), f = await setup(data);
+  const details = { ...emptyOrderCosting(), fabricCompanyId: f.supplier.id, extras: [{ id: 'logistics', category: 'Lojistik' as const, name: 'Nakliye', amountMinor: 50000, companyId: f.supplier.id, date: operationDate() }], accessories: [{ id: 'label', name: 'Ense etiketi', quantity: 1500, unit: 'Adet' as const, materialId: '', companyId: f.supplier.id, priceMinor: 50 }] };
+  let o = await f.orders.create({ ...f.input, costPricesMinor: { Kumaş: 10000, Kesim: 200, Dikim: 300, 'Ütü & Paket': 100 }, costing: details, product: { ...f.input.product, colors: [{ color: 'Siyah', quantity: 1500 }] } });
+  const entries = async () => selectAccountEntries({ ...data, contacts: await f.contacts.list(), orders: await f.orders.list(), errors: [] });
+  assert.equal((await entries()).reduce((n,e) => n+e.deltaMinor,0), -125000);
+  o = await f.orders.savePlanning(o.id,o.revision,o.product.enabledStages.map((type) => ({ type, companyId: f.supplier.id, plannedStart: o.date, dueDate: o.dueDate })));
+  for (const [type, quantity] of [['Kesim',1400],['Dikim',1300],['Ütü & Paket',1200]] as const) { o = await f.orders.beginPlannedStage(o.id,o.revision,type); o = await f.orders.recordStageResult(o.id,o.revision,type,[{ color: 'Siyah', quantity, ...(type === 'Kesim' ? { kg: 600 } : {}) }],[]); }
+  const c = actualProductionCosts(o,data);
+  assert.equal(c.rows.find((r) => r.name === 'Kumaş')?.total, 6000000); assert.equal(c.rows.find((r) => r.name === 'Kumaş')?.unit, 5000);
+  assert.equal(c.rows.find((r) => r.name === 'Kesim')?.total, 300000); assert.equal(c.rows.find((r) => r.name === 'Dikim')?.total, 420000); assert.equal(c.rows.find((r) => r.name === 'Ütü / Paket')?.total, 130000);
+  assert.equal(c.total, 6975000); assert.equal(c.unit, 5813);
+  const original = await entries(); assert.equal(original.length,6); assert.equal(original.reduce((n,e) => n+e.deltaMinor,0), -c.total);
+  assert.ok(original.every((e) => e.description.includes(o.orderNo) && e.description.includes(f.supplier.name)));
+  const finance = createFinanceRepository(f.storage,f.contacts); await finance.payment({ companyId: f.supplier.id, responsibleId: '', date: o.date, direction: 'paid', method: 'Banka', description: 'Üretim ödemesi', amount: 10000 }); data.finance = await finance.load();
+  assert.equal((await entries()).reduce((n,e) => n+e.deltaMinor,0), -5975000);
+  o = await f.orders.saveCosts(o.id,o.revision,{ ...o.costPricesMinor, Kesim: 300 },details);
+  assert.equal((await entries()).filter((e) => e.source === 'Üretim Maliyeti').length,6);
+  assert.equal((await entries()).reduce((n,e) => n+e.deltaMinor,0), -6125000);
+  const before = await entries(); o = await f.orders.setArchived(o.id,o.revision,true); assert.deepEqual(await entries(),before);
+  o = await f.orders.setArchived(o.id,o.revision,false);
+  o = await f.orders.recordStageResult(o.id,o.revision,'Ütü & Paket',[{ color: 'Siyah', quantity: 0 }],[]);
+  assert.equal(actualProductionCosts(o,data).unit,undefined); assert.equal(actualProductionCosts(o,data).total,7125000);
+  const raw = [...f.values.entries()]; await assert.rejects(f.orders.saveCosts(o.id,o.revision,{ Kesim: -1 },details)); assert.deepEqual([...f.values.entries()],raw);
+});
+
+test('Aksesuar stok ihtiyacı, eksik miktar, kaynak bağlantısı ve cari çift kayıt koruması', async () => {
+  const data = emptyCostData(), f = await setup(data), stock = createInventoryRepositories(f.storage,f.contacts);
+  const material = await stock.materials.create({ name: 'Ense etiketi', category: 'Etiket', feature: '', quantity: 1000, unit: 'Adet', price: 0.5, date: operationDate(), companyId: f.supplier.id, account: 'Borç oluştur', note: '' });
+  data.materials = await stock.materials.load();
+  const accessory = { id: 'stock-label', name: material.name, quantity: 1200, unit: 'Adet' as const, materialId: material.id, companyId: '', priceMinor: undefined };
+  assert.equal(accessoryAvailability([accessory],data.materials.records)[0].missing,200);
+  const costing = { ...emptyOrderCosting(), accessories: [accessory] };
+  let o = await f.orders.create({ ...f.input, costing });
+  await assert.rejects(f.orders.saveCosts(o.id,o.revision,{}, { ...costing, accessories: [{ ...accessory, unit: 'Metre' }] }), /birimde/);
+  assert.equal(actualProductionCosts(o,data).total,60000);
+  let ledger = selectAccountEntries({ ...data, contacts: await f.contacts.list(), orders: [o], errors: [] }); assert.equal(ledger.length,1); assert.equal(ledger[0].deltaMinor,-50000);
+  await stock.materials.move(material.id,'Çıkış',600,o.date,'Üretimde kullanıldı'); data.materials = await stock.materials.load();
+  const sourceId = `material:${data.materials.movements.at(-1)!.id}`;
+  o = await f.orders.saveSheetCosts(o.id,o.revision,{ estimated: {}, sources: [sourceId] });
+  assert.equal(actualProductionCosts(o,data).total,30000);
+  ledger = selectAccountEntries({ ...data, contacts: await f.contacts.list(), orders: [o], errors: [] }); assert.equal(ledger.length,1); assert.equal(ledger[0].deltaMinor,-50000);
+  const other = await f.orders.create(f.input); await assert.rejects(f.orders.saveSheetCosts(other.id,other.revision,{ estimated: {}, sources: [sourceId] }), /iki üretime/);
 });
 
 test('Manuel sipariş no benzersizdir; otomatik sayaç manuel numarayı atlar, arşiv numarasını yeniden kullanmaz', async () => {

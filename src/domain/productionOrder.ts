@@ -5,6 +5,8 @@ import { validateSheetCosts } from './generalSheetCosts.ts';
 import type { SheetCostSettings } from './generalSheetCosts';
 import { validateSampleImages } from './sampleImages.ts';
 import type { SampleImage } from './sampleImages';
+import { validateOrderCosting } from './orderCosting.ts';
+import type { OrderCosting } from './orderCosting';
 import { itemStatus, validateNotes, validatePlanInput, validatePlanRecords } from './productionPlan.ts';
 import type { PlanItem, ProductionPlan } from './productionPlan';
 
@@ -23,11 +25,12 @@ export interface ProductionOrder {
   productionStartedAt?: string;
   stagePlans?: StagePlan[];
   costPricesMinor?: CostPrices;
+  costing?: OrderCosting;
   sheetCosts?: SheetCostSettings;
   resultHistory?: { type: import('./productionPlan').PlanStage; changedAt: string; previous: import('./productionPlan').PlanStageRecord['result'] }[];
 }
 export type OrderProductInput = Omit<OrderProduct, 'id' | 'productName' | 'brand' | 'stages' | 'stockTransfer' | 'legacy'>;
-export interface ProductionOrderInput { name: string; customerId: string; date: string; dueDate: string; customerReference: string; customerNote: string; note: string; product: OrderProductInput; orderNo?: string }
+export interface ProductionOrderInput { name: string; customerId: string; date: string; dueDate: string; customerReference: string; customerNote: string; note: string; product: OrderProductInput; orderNo?: string; costPricesMinor?: CostPrices; costing?: OrderCosting }
 export interface ProductionBrand { id: string; name: string }
 export interface OrderDraft { id: string; revision: number; updatedAt: string; input: ProductionOrderInput }
 export const productionStarted = (o: ProductionOrder) => !!o.productionStartedAt || o.product.stages.length > 0 || !!o.product.legacy;
@@ -59,6 +62,7 @@ export function validateProductionOrders(orders: ProductionOrder[] | undefined) 
   if (!Array.isArray(orders)) throw new Error('Sipariş deposu geçersiz.');
   const ids = new Set<string>(), numbers = new Set<string>();
   for (const o of orders) {
+    validateOrderCosting(o.costing);
     if (o.sheetCosts !== undefined) validateSheetCosts(o.sheetCosts);
     if (o.costPricesMinor !== undefined) validateCostPrices(o.costPricesMinor);
     if (o.stagePlans) { if (!Array.isArray(o.stagePlans) || new Set(o.stagePlans.map((p) => p.type)).size !== o.stagePlans.length) throw new Error('Aşama planları geçersiz.'); for (const p of o.stagePlans) { requireText(p.companyId, 'Firma'); checkDate(p.plannedStart); checkDate(p.dueDate); if (!o.product.enabledStages.includes(p.type) || p.dueDate < p.plannedStart) throw new Error('Aşama planı geçersiz.'); } }

@@ -21,6 +21,8 @@ import { automaticCostSources, costSources, validateSheetCosts } from '../../dom
 import type { CostSourceData, SheetCostSettings } from '../../domain/generalSheetCosts';
 import { validateSampleImages } from '../../domain/sampleImages.ts';
 import type { SampleImage } from '../../domain/sampleImages';
+import { emptyOrderCosting, validateOrderCosting } from '../../domain/orderCosting.ts';
+import type { OrderCosting } from '../../domain/orderCosting';
 
 interface Dependencies { contacts: Pick<ContactRepository, 'get'>; definitions: Pick<ProductDefinitionRepository, 'requireActive'>; products: Pick<ProductRepository, 'load' | 'receiveProduction'>; costData?: () => Promise<CostSourceData> }
 export function createOrderRepository(storage: () => StoragePort, deps: Dependencies, lock?: StoreLock) {
@@ -42,6 +44,17 @@ export function createOrderRepository(storage: () => StoragePort, deps: Dependen
   function editable(o: ProductionOrder) { if (o.product.legacy?.readOnly || o.product.legacy?.completed) throw new Error('Bu ürünün eski işlemleri salt okunur korunuyor.'); return o.product; }
   async function customer(id: string, previous?: string) { requireText(id, 'Müşteri'); if (isInternalPlan({ customerId: id }) || id === previous) return; const c = await deps.contacts.get(id); if (!c || c.status !== 'Aktif' || !c.roles.includes('Hazır Giyim Müşterisi')) throw new Error('Aktif müşteri seçin.'); }
   async function company(type: PlanStage, id: string) { const c = await deps.contacts.get(id); if (!c || c.status !== 'Aktif' || !c.roles.includes('Fasoncu') || !c.services.includes(type)) throw new Error(`${type} hizmeti veren aktif bir Fasoncu seçin.`); }
+  async function costing(value: OrderCosting | undefined, previous?: OrderCosting) {
+    validateOrderCosting(value); if (!value) return;
+    const oldIds = [previous?.fabricCompanyId, ...(previous?.extras ?? []).map((r) => r.companyId), ...(previous?.accessories ?? []).map((r) => r.companyId)];
+    for (const id of new Set([value.fabricCompanyId, ...value.extras.map((r) => r.companyId), ...value.accessories.map((r) => r.companyId)].filter(Boolean))) {
+      const c = await deps.contacts.get(id); if (!c || c.status !== 'Aktif' && !oldIds.includes(id)) throw new Error('Maliyet için kayıtlı aktif firma seçin.');
+    }
+    if (value.accessories.some((r) => r.materialId)) {
+      const materials = (await deps.costData?.())?.materials.records ?? [];
+      for (const r of value.accessories.filter((r) => r.materialId)) { const m = materials.find((m) => m.id === r.materialId); if (!m || m.unit !== r.unit || !m.active && !previous?.accessories.some((a) => a.materialId === m.id)) throw new Error('Aksesuar için aynı birimde geçerli malzeme stoku seçin.'); }
+    }
+  }
   async function brands(data: WorkflowStore): Promise<ProductionBrand[]> {
     const result = [...(data.productionBrands ?? [])];
     const { orders } = await all(data); const stock = await deps.products.load();
@@ -94,9 +107,9 @@ export function createOrderRepository(storage: () => StoragePort, deps: Dependen
         o.stagePlans = o.stagePlans?.filter((s) => p.enabledStages.includes(s.type)); validateOrderProduct(p); return save(data, o);
       });
     },
-    async saveCosts(id: string, revision: number, prices: CostPrices) {
+    async saveCosts(id: string, revision: number, prices: CostPrices, details?: OrderCosting) {
       validateCostPrices(prices);
-      return store.transact(async (data) => { const o = await find(data, id, revision); productionCosts(o, prices); o.costPricesMinor = { ...prices }; return save(data, o); });
+      return store.transact(async (data) => { const o = await find(data, id, revision); await costing(details ?? o.costing, o.costing); productionCosts(o, prices); o.costPricesMinor = { ...prices }; o.costing = structuredClone(details ?? o.costing ?? emptyOrderCosting()); return save(data, o); });
     },
     async savePlanning(id: string, revision: number, plans: StagePlan[]) {
       for (const p of plans) { await company(p.type, p.companyId); checkDate(p.plannedStart); checkDate(p.dueDate); if (p.dueDate < p.plannedStart) throw new Error('Aşama termini başlangıçtan önce olamaz.'); }
@@ -177,6 +190,7 @@ export function createOrderRepository(storage: () => StoragePort, deps: Dependen
     async createBrand(name: string) { requireText(name, 'Marka', 200); return store.transact(async (data) => { const existing = (await brands(data)).find((b) => colorKey(b.name) === colorKey(name)); if (existing) return existing; const b = { id: uid(), name: name.trim() }; (data.productionBrands ??= []).push(b); return b; }); },
     async create(input: ProductionOrderInput, sourceDraftId?: string) {
       await customer(input.customerId);
+      validateCostPrices(input.costPricesMinor ?? {}); await costing(input.costing);
       return store.transact(async (data) => { const existing = (await all(data)).orders; const converted = sourceDraftId && existing.find((o) => o.sourceDraftId === sourceDraftId); if (converted) return converted; const p = await product(data, input); let number = data.nextProductionOrder ?? 1;
         const manual = input.orderNo?.trim();
         if (manual && !/^[\p{L}\p{N}][\p{L}\p{N} ._/-]{0,39}$/u.test(manual)) throw new Error('Sipariş No en fazla 40 karakter olmalı; harf, rakam, boşluk, nokta, tire, alt çizgi veya / kullanın.');
@@ -184,10 +198,11 @@ export function createOrderRepository(storage: () => StoragePort, deps: Dependen
         while (existing.some((o) => colorKey(o.orderNo) === colorKey(`SP-${String(number).padStart(3, '0')}`))) number++;
         if (!manual) data.nextProductionOrder = number + 1; const id = uid(), now = new Date().toISOString();
         const o: ProductionOrder = { name: input.name.trim(), customerId: input.customerId, date: input.date, dueDate: input.dueDate, customerReference: input.customerReference, customerNote: input.customerNote, note: input.note, product: p, workflowVersion: 4, sourceDraftId, id, orderNo: manual || `SP-${String(number).padStart(3, '0')}`, revision: 0, createdAt: now, updatedAt: now, stockSourceId: `order:${id}` };
+        if (input.costPricesMinor !== undefined) o.costPricesMinor = { ...input.costPricesMinor }; if (input.costing !== undefined) o.costing = structuredClone(input.costing);
         (data.productionOrders ??= []).push(o); return o;
       });
     },
-    async update(id: string, revision: number, input: ProductionOrderInput) { return store.transact(async (data) => { const o = await find(data, id, revision); const i = editable(o); if (i.stages.length) throw new Error('Üretim başladığı için sipariş bilgileri kilitlidir.'); await customer(input.customerId, o.customerId); const p = await product(data, input, i); Object.assign(o, { name: input.name.trim(), customerId: input.customerId, date: input.date, dueDate: input.dueDate, customerReference: input.customerReference, customerNote: input.customerNote, note: input.note, product: p }); return save(data, o); }); },
+    async update(id: string, revision: number, input: ProductionOrderInput) { return store.transact(async (data) => { const o = await find(data, id, revision); const i = editable(o); if (i.stages.length) throw new Error('Üretim başladığı için sipariş bilgileri kilitlidir.'); await customer(input.customerId, o.customerId); const p = await product(data, input, i); validateCostPrices(input.costPricesMinor ?? o.costPricesMinor ?? {}); await costing(input.costing ?? o.costing, o.costing); if (input.costPricesMinor !== undefined) o.costPricesMinor = { ...input.costPricesMinor }; if (input.costing !== undefined) o.costing = structuredClone(input.costing); Object.assign(o, { name: input.name.trim(), customerId: input.customerId, date: input.date, dueDate: input.dueDate, customerReference: input.customerReference, customerNote: input.customerNote, note: input.note, product: p }); return save(data, o); }); },
     async startStage(id: string, revision: number, type: PlanStage, input: StageInput) {
       requireText(input.companyId, 'Fasoncu / Firma'); checkDate(input.date); validateNotes(input.notes);
       const c = await deps.contacts.get(input.companyId); if (!c || c.status !== 'Aktif' || !c.roles.includes('Fasoncu') || !c.services.includes(type)) throw new Error(`${type} hizmeti veren aktif bir Fasoncu seçin.`);

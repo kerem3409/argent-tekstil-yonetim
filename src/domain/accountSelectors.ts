@@ -2,12 +2,20 @@ import type { WorkshopSnapshot } from '../data/reports/snapshot';
 import type { AccountEntry } from './finance';
 import { OPEN_ACCOUNT_ID } from './sales.ts';
 import { stageAmount } from './production.ts';
+import { actualProductionCosts } from './orderCosting.ts';
 
 export function accountName(data: WorkshopSnapshot, companyId: string, responsibleId = '') {
   return companyId === OPEN_ACCOUNT_ID ? `Açığa Satış / ${data.products?.openResponsibles?.find((p) => p.id === responsibleId)?.name ?? 'Sorumlu bulunamadı'}` : data.contacts.find((c) => c.id === companyId)?.name ?? 'Firma kaydı bulunamadı';
 }
 export function selectAccountEntries(data: WorkshopSnapshot): AccountEntry[] {
   const entries: AccountEntry[] = [];
+  for (const order of data.orders ?? []) if (order.costing) {
+    const sourceData = data.fabrics && data.materials && data.production && data.finance ? { fabrics: data.fabrics, materials: data.materials, production: data.production, finance: data.finance } : undefined;
+    if (!sourceData) continue;
+    // Source-backed costs already belong to their stock/fason/expense ledger entries.
+    // Archived and trashed orders retain their incurred obligations and payments.
+    for (const line of actualProductionCosts(order, sourceData).lines) if (line.payable && line.companyId && line.total !== undefined && line.total > 0) entries.push({ id: `order-cost:${order.id}:${line.id}`, sourceId: order.orderNo, source: 'Üretim Maliyeti', companyId: line.companyId, responsibleId: '', date: line.date, description: `${order.orderNo} · ${line.name} · ${accountName(data, line.companyId)}`, deltaMinor: -line.total, href: `/uretim/siparisler?id=${order.id}`, productId: order.product.id });
+  }
   for (const item of data.products?.accountMovements ?? []) {
     const record = data.products?.records.find((r) => r.id === item.stockId);
     entries.push({ id: `product:${item.id}`, sourceId: item.stockId, source: item.type === 'Alacaktan mahsup et' ? 'Mahsup / Hazır Ürün Alımı' : item.type === 'Tedarikçiye iade' ? 'Ürün İadesi' : 'Hazır Ürün Alımı', companyId: item.contactId, responsibleId: '', date: item.date, description: item.description, deltaMinor: item.effect === 'payable-decrease' ? item.amountMinor : -item.amountMinor, href: `/stok/urunler?islem=gecmis&id=${item.stockId}`, stockId: item.stockId, productId: record?.productId ?? record?.id });
