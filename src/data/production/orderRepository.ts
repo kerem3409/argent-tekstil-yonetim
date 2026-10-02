@@ -5,8 +5,8 @@ import { validateWorkflowStore, PRODUCTION_STORAGE_KEY } from './workflowReposit
 import { migratedOrders } from './orderMigration.ts';
 import { checkDate, requireText, uid } from '../../domain/common.ts';
 import { activeStages, colorKey, isInternalPlan, itemStatus, stageAvailable, stageInput as stageInputFor, stageRecord, validateNotes, validatePlanInput } from '../../domain/productionPlan.ts';
-import { historicalBrandId, validateOrderProduct } from '../../domain/productionOrder.ts';
-import type { ProductionBrand, ProductionOrder, ProductionOrderInput, OrderProduct } from '../../domain/productionOrder';
+import { historicalBrandId, productApplicationCards, validateOrderProduct } from '../../domain/productionOrder.ts';
+import type { ApplicationCard, ProductionBrand, ProductionOrder, ProductionOrderInput, OrderProduct } from '../../domain/productionOrder';
 import type { PlanStage, PlanStageRecord } from '../../domain/productionPlan';
 import type { WorkflowStore } from '../../domain/productionWorkflow';
 import type { ContactRepository } from '../contacts/repository';
@@ -105,6 +105,19 @@ export function createOrderRepository(storage: () => StoragePort, deps: Dependen
         p.embroidery = { ...structuredClone(embroidery), notes: embroidery.notes.map((s) => s.trim()).filter(Boolean), colorNotes: p.embroidery.colorNotes };
         p.printing = { ...structuredClone(printing), notes: printing.notes.map((s) => s.trim()).filter(Boolean), colorNotes: p.printing?.colorNotes ?? [] };
         o.stagePlans = o.stagePlans?.filter((s) => p.enabledStages.includes(s.type)); validateOrderProduct(p); return save(data, o);
+      });
+    },
+    async saveApplicationCards(id: string, revision: number, cards: ApplicationCard[]) {
+      if (!Array.isArray(cards) || cards.length > 50 || cards.some((card) => !card.id || !['Nakış', 'Baskı'].includes(card.type))) throw new Error('İşlem kartları geçersiz.');
+      for (const card of cards) validateNotes(card.notes);
+      return store.transact(async (data) => {
+        const o = await find(data, id, revision), p = editable(o), types = [...new Set(cards.map((card) => card.type))];
+        const changed = productApplicationCards(p).map((card) => card.type).sort().join('|') !== cards.map((card) => card.type).sort().join('|');
+        if (changed && (p.stockTransfer || p.stages.some((s) => ['Nakış', 'Baskı', 'Dikim', 'Ütü & Paket'].includes(s.type)))) throw new Error('İşlem başladıktan sonra uygulama türü değiştirilemez.');
+        p.applicationCards = structuredClone(cards).map((card) => ({ ...card, notes: card.notes.map((note) => note.trim()).filter(Boolean) }));
+        p.enabledStages = ['Kesim', ...(types.includes('Baskı') ? ['Baskı' as const] : []), ...(types.includes('Nakış') ? ['Nakış' as const] : []), 'Dikim', 'Ütü & Paket'];
+        o.stagePlans = o.stagePlans?.filter((plan) => p.enabledStages.includes(plan.type));
+        validateOrderProduct(p); return save(data, o);
       });
     },
     async saveCosts(id: string, revision: number, prices: CostPrices, details?: OrderCosting) {

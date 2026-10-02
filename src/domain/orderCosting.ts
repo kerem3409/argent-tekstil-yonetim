@@ -9,7 +9,7 @@ import type { Material } from './inventory';
 export const extraCostCategories = ['Aksesuar', 'Ütü / Paket Malzemeleri', 'Lojistik', 'Diğer'] as const;
 export const accessoryUnits = ['Adet', 'Metre', 'Kg', 'Paket'] as const;
 export interface OrderExtraCost { id: string; category: typeof extraCostCategories[number]; name: string; amountMinor: number; companyId: string; date: string }
-export interface OrderAccessory { id: string; name: string; quantity: number; unit: typeof accessoryUnits[number]; materialId: string; companyId: string; priceMinor?: number }
+export interface OrderAccessory { id: string; name: string; quantity: number; quantityText?: string; unit: typeof accessoryUnits[number]; materialId: string; companyId: string; priceMinor?: number }
 export interface OrderCosting { version: 1; fabricCompanyId: string; extras: OrderExtraCost[]; accessories: OrderAccessory[] }
 export const emptyOrderCosting = (): OrderCosting => ({ version: 1, fabricCompanyId: '', extras: [], accessories: [] });
 export function validateOrderCosting(value: OrderCosting | undefined) {
@@ -18,8 +18,26 @@ export function validateOrderCosting(value: OrderCosting | undefined) {
   const ids = new Set<string>();
   for (const r of [...value.extras, ...value.accessories]) { requireText(r.id, 'Kalem kimliği'); if (ids.has(r.id)) throw new Error('Maliyet kalemi tekrarlanamaz.'); ids.add(r.id); requireText(r.name, 'Kalem adı', 200); if (typeof r.companyId !== 'string') throw new Error('Firma seçimi geçersiz.'); }
   for (const r of value.extras) { checkDate(r.date); if (!extraCostCategories.includes(r.category) || !Number.isSafeInteger(r.amountMinor) || r.amountMinor < 0) throw new Error('Ek maliyet geçersiz.'); }
-  for (const r of value.accessories) quantity(r.quantity, 'Aksesuar miktarı', ['Adet', 'Paket'].includes(r.unit));
-  for (const r of value.accessories) if (!accessoryUnits.includes(r.unit) || !Number.isFinite(r.quantity) || r.quantity <= 0 || r.quantity > 1e9 || (['Adet', 'Paket'].includes(r.unit) && !Number.isSafeInteger(r.quantity)) || typeof r.materialId !== 'string' || (r.priceMinor !== undefined && (!Number.isSafeInteger(r.priceMinor) || r.priceMinor < 0))) throw new Error('Aksesuar miktarı, birimi veya fiyatı geçersiz.');
+  for (const r of value.accessories) if (r.quantity > 0) quantity(r.quantity, 'Aksesuar miktarı', ['Adet', 'Paket'].includes(r.unit));
+  for (const r of value.accessories) if (!accessoryUnits.includes(r.unit) || !Number.isFinite(r.quantity) || r.quantity < 0 || r.quantity > 1e9 || (r.quantity > 0 && ['Adet', 'Paket'].includes(r.unit) && !Number.isSafeInteger(r.quantity)) || (r.quantity === 0 && !r.quantityText) || (r.quantityText !== undefined && (typeof r.quantityText !== 'string' || r.quantityText.length > 100)) || typeof r.materialId !== 'string' || (r.priceMinor !== undefined && (!Number.isSafeInteger(r.priceMinor) || r.priceMinor < 0))) throw new Error('Aksesuar miktarı, birimi veya fiyatı geçersiz.');
+}
+function plannedQuantity(value: string) {
+  const match = value.trim().match(/^(\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:,\d+)?|\d+(?:\.\d+)?)/);
+  if (!match) return { quantity: 0, unit: 'Adet' as const };
+  const raw = match[0].includes('.') && match[0].includes(',') ? match[0].replaceAll('.', '').replace(',', '.') : match[0].includes('.') && /\.\d{3}(?:\D|$)/.test(match[0]) ? match[0].replaceAll('.', '') : match[0].replace(',', '.');
+  const quantity = Number(raw), suffix = value.slice(match[0].length).trim().toLocaleLowerCase('tr-TR');
+  const unit = suffix.includes('metre') || suffix.includes('mt') ? 'Metre' : suffix.includes('kg') ? 'Kg' : suffix.includes('paket') ? 'Paket' : 'Adet';
+  return { quantity: Number.isFinite(quantity) ? quantity : 0, unit: unit as typeof accessoryUnits[number] };
+}
+export function seedPlanAccessories(order: ProductionOrder, costing: OrderCosting): OrderCosting {
+  const rows = [...costing.accessories];
+  for (const [index, material] of order.product.materials.entries()) {
+    const name = material.name.trim();
+    if (!name || rows.some((r) => r.name.trim().toLocaleLowerCase('tr-TR') === name.toLocaleLowerCase('tr-TR'))) continue;
+    const parsed = plannedQuantity(material.quantity);
+    rows.push({ id: `plan-material:${index}:${encodeURIComponent(name)}`, name, quantity: parsed.quantity, quantityText: material.quantity || 'Miktar belirtilmedi', unit: parsed.unit, materialId: '', companyId: '' });
+  }
+  return { ...costing, accessories: rows };
 }
 export function accessoryAvailability(rows: OrderAccessory[], materials: Material[]) {
   const available = new Map(materials.map((m) => [m.id, m.quantity]));
@@ -48,6 +66,7 @@ export function actualProductionCosts(order: ProductionOrder, data?: CostSourceD
     if (r.materialId && selected.some((s) => s.id.startsWith('material:') && data?.materials.movements.some((m) => `material:${m.id}` === s.id && m.recordId === r.materialId))) continue;
     const price = r.materialId ? material?.priceMinor : r.priceMinor;
     if (r.materialId && !material) missing.push(`material:${r.materialId}`);
+    if (r.quantity <= 0 || (r.materialId ? material?.priceMinor : r.priceMinor) === undefined) missing.push(`accessory:${r.id}`);
     lines.push({ id: `accessory:${r.id}`, name: r.name, category: material?.category === 'Ütü & Paket Malzemeleri' ? 'Ütü / Paket Malzemeleri' : 'Aksesuar', quantity: r.quantity, total: price === undefined ? undefined : amount(r.quantity, price), companyId: r.materialId ? '' : r.companyId, date: order.date, payable: !r.materialId });
   }
   for (const r of settings?.extras ?? []) lines.push({ id: `extra:${r.id}`, name: r.name, category: r.category, total: r.amountMinor, companyId: r.companyId, date: r.date, payable: true });

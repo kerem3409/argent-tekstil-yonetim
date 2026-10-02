@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import type { ProductionOrder } from '../../domain/productionOrder';
 import { costMoney, validateCostPrices } from '../../domain/productionCosts';
 import type { CostPrices } from '../../domain/productionCosts';
-import { actualProductionCosts, emptyOrderCosting } from '../../domain/orderCosting';
+import { actualProductionCosts, emptyOrderCosting, seedPlanAccessories } from '../../domain/orderCosting';
 import { orderRepository, productionRepository } from '../../data/production';
 import { inventory } from '../../data/inventory';
 import { financeRepository } from '../../data/finance';
@@ -14,7 +14,7 @@ import { OrderCostSources } from './OrderCostSources';
 
 export function OrderCosts({ order, done }: { order: ProductionOrder; done: () => void }) {
   const [prices, setPrices] = useState<CostPrices>({ ...order.costPricesMinor });
-  const [costing, setCosting] = useState(() => structuredClone(order.costing ?? emptyOrderCosting()));
+  const [costing, setCosting] = useState(() => seedPlanAccessories(order, structuredClone(order.costing ?? emptyOrderCosting())));
   const [dirty, setDirty] = useState(false), ref = useRef<HTMLDivElement>(null); useOrderDirtyGuard(dirty, ref);
   const data = useResource(async () => { const [fabrics, materials, production, finance, contacts] = await Promise.all([inventory.fabrics.load(), inventory.materials.load(), productionRepository.load(), financeRepository.load(), contactRepository.list()]); return { fabrics, materials, production, finance, contacts }; });
   let calculated: ReturnType<typeof actualProductionCosts> | undefined, error = data.error;

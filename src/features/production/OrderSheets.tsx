@@ -5,6 +5,7 @@ import { resultLabel } from './OrderStages';
 import { colorKey, stageInput, stageRecord } from '../../domain/productionPlan';
 import type { PlanStage } from '../../domain/productionPlan';
 import type { ProductionOrder } from '../../domain/productionOrder';
+import { productApplicationCards, productFeatures } from '../../domain/productionOrder';
 import { Section, Table } from '../shared/WorkshopUI';
 import { PlanSizes } from './PlanStages';
 
@@ -33,16 +34,16 @@ export function OrderSheets({ order, print }: { order: ProductionOrder; print: (
   return <Section title="Föyler"><div className="ws-tabs">{(Object.keys(sheetNames) as OrderSheet[]).filter((s) => (s !== 'Nakış' && s !== 'Baskı') || order.product.enabledStages.includes(s)).map((s) => <button className="button ws-secondary" key={s} onClick={() => print(s)}>{sheetNames[s]}</button>)}</div><p className="ws-hint">Föyler kayıt veya durum değiştirmez. Fasoncu föylerinde müşteri ve mali bilgiler gösterilmez.</p></Section>;
 }
 export function OrderTechnicalPrint({ order, type, customerName, contacts = [] }: { order: ProductionOrder; type: OrderSheet; customerName: string; contacts?: Contact[] }) {
-  const p = order.product, general = type === 'Genel', stage = !general ? stageRecord(p, type) : undefined;
+  const p = order.product, general = type === 'Genel', stage = !general ? stageRecord(p, type) : undefined, applicationCards = productApplicationCards(p);
   const plan = !general ? stagePlan(order, type) : undefined;
   const embroidery = general || type === 'Nakış', packaging = general || type === 'Ütü & Paket';
   return <article className="production-paper plan-technical-print"><h1>ARGENT TEKSTİL · {sheetNames[type]}</h1><dl className="production-summary">{[
     ['İş / Sipariş No', order.orderNo], ...(general ? [['Müşteri', customerName]] : []), ['Marka', p.brand], ['Ürün Türü', p.productName], ['Ürün / Model', p.modelName], ...((general || type === 'Kesim') ? [['Kumaş', p.fabricName], ...(p.gsm ? [['Gramaj', p.gsm]] : []), ['Kumaş Özellikleri', p.fabricProperties]] : []), ['Genel Termin', order.dueDate], ...(!general ? [['Atanmış Firma', companyName(contacts, stage?.companyId ?? plan?.companyId ?? '')], ['Planlanan Başlangıç', plan?.plannedStart ?? ''], ['Aşama Termini', plan?.dueDate ?? '']] : []),
   ].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || '—'}</dd></div>)}</dl>
     {general ? <><h2>Renk / İstenen Adet</h2><Table headers={['Renk', 'Adet']} rows={[...p.colors.map((r) => [r.color, r.quantity]), ['TOPLAM', p.colors.reduce((n, r) => n + r.quantity, 0)]]} /></> : <StageQuantityTable order={order} type={type} />}
-    {(general || type === 'Kesim' || type === 'Dikim') && <><h2>Seri / Beden · {p.sizeSeries}</h2><PlanSizes item={p} /><h2>Ürün Özellikleri</h2><ul>{[...(p.dropShoulder ? ['Düşük Omuz'] : []), ...(p.sideSlit ? ['Yırtmaç'] : []), ...p.instructions].map((s,i)=><li key={i}>{s}</li>)}</ul></>}
-    {embroidery && <><h2>Nakış Bilgileri</h2><ol>{p.embroidery.notes.map((s, i) => <li key={i}>{s}</li>)}</ol><p>Logo Konumu: {p.embroidery.position || '—'} · Ölçü: {p.embroidery.size || '—'}</p><p>{p.embroidery.technicalNote}</p></>}
-    {(general || type === 'Baskı') && p.enabledStages.includes('Baskı') && <><h2>Baskı Bilgileri</h2><ol>{p.printing?.notes.map((n, i) => <li key={i}>{n}</li>)}</ol><p>Konum: {p.printing?.position} · Ölçü: {p.printing?.size}</p><p>{p.printing?.technicalNote}</p></>}
+    {(general || type === 'Kesim' || type === 'Dikim') && <><h2>Seri / Beden · {p.sizeSeries}</h2><PlanSizes item={p} /><h2>Ürün Özellikleri</h2><ul>{productFeatures(p).map((s,i)=><li key={i}>{s}</li>)}</ul></>}
+    {embroidery && applicationCards.filter((card) => card.type === 'Nakış').map((card, index) => <div key={card.id}><h2>Nakış Bilgileri {applicationCards.filter((c) => c.type === 'Nakış').length > 1 ? index + 1 : ''}</h2><ul>{card.notes.filter(Boolean).map((note, i) => <li key={i}>{note}</li>)}</ul></div>)}
+    {(general || type === 'Baskı') && applicationCards.filter((card) => card.type === 'Baskı').map((card, index) => <div key={card.id}><h2>Baskı Bilgileri {applicationCards.filter((c) => c.type === 'Baskı').length > 1 ? index + 1 : ''}</h2><ul>{card.notes.filter(Boolean).map((note, i) => <li key={i}>{note}</li>)}</ul></div>)}
     {packaging && <><h2>Paket / Ambalaj Bilgisi</h2><dl className="production-summary">{[['Paket Tipi', p.packaging.type], ['Bir Pakette Kaç Ürün', String(p.packaging.unitsPerPack ?? '')], ['Beden', p.packaging.sizeMode], ['Ambalaj Notu', p.packaging.note]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || '—'}</dd></div>)}</dl></>}
 
     {stage && <><h2>{type} Teknik Notları</h2><ol>{stage.notes.map((s, i) => <li key={i}>{s}</li>)}</ol></>}
