@@ -5,7 +5,7 @@ import type { CommonSizeDistribution, SizeSeries } from './productionWorkflow';
 // A reserved identity; a contact merely named ARGENT is still an external customer.
 export const INTERNAL_CUSTOMER_ID = 'system:argent-internal-customer';
 export const INTERNAL_CUSTOMER = { id: INTERNAL_CUSTOMER_ID, name: 'ARGENT', isInternalCustomer: true } as const;
-export const planStages = ['Kesim', 'Nakış', 'Baskı', 'Dikim', 'Ütü & Paket'] as const;
+export const planStages = ['Kesim', 'Nakış', 'Baskı', 'Uygulama', 'Dikim', 'Ütü & Paket'] as const;
 export type PlanStage = typeof planStages[number];
 export interface PlanColor { color: string; quantity: number }
 export interface PlanMaterial { name: string; description: string; quantity: string }
@@ -21,6 +21,7 @@ export interface PlanItem {
   fabricName: string; gsm: string; fabricProperties: string;
   sizeSeries: SizeSeries; sizeDistribution: CommonSizeDistribution; colors: PlanColor[];
   instructions: string[]; materials: PlanMaterial[]; enabledStages: PlanStage[]; stages: PlanStageRecord[];
+  applicationPosition?: 'before' | 'after';
   stockTransfer?: { stockIds: string[]; date: string };
   legacy?: { readOnly: boolean; reason: string; productionIds: string[]; cuttingIds: string[]; completed: boolean };
 }
@@ -35,7 +36,13 @@ export type PlanItemInput = Omit<PlanItem, 'id' | 'productName' | 'stages' | 'st
 export interface PlanInput { name: string; customerId: string; date: string; dueDate: string; customerReference: string; note: string; items: PlanItemInput[] }
 export const isInternalPlan = (p: Pick<ProductionPlan, 'customerId'>) => p.customerId === INTERNAL_CUSTOMER_ID;
 export const colorKey = (s: string) => s.trim().toLocaleLowerCase('tr-TR');
-export const activeStages = (item: PlanItem) => planStages.filter((s) => item.enabledStages.includes(s));
+export function productionRoute(application: boolean, position: 'before' | 'after' = 'before'): PlanStage[] {
+  return ['Kesim', ...(application && position === 'before' ? ['Uygulama' as const] : []), 'Dikim', ...(application && position === 'after' ? ['Uygulama' as const] : []), 'Ütü & Paket'];
+}
+export const activeStages = (item: PlanItem): PlanStage[] => item.applicationPosition !== undefined || item.enabledStages.includes('Uygulama') ? productionRoute(item.enabledStages.includes('Uygulama'), item.applicationPosition) : planStages.filter((s) => item.enabledStages.includes(s));
+export const latestStageResult = (item: PlanItem) => [...activeStages(item)].reverse().map((s) => stageRecord(item, s)?.result).find(Boolean);
+export const currentQuantity = (item: PlanItem) => latestStageResult(item)?.rows.reduce((n, r) => n + r.quantity, 0);
+export const stageState = (item: PlanItem, type: PlanStage) => stageRecord(item, type)?.result ? '✓ Tamamlandı' : stageRecord(item, type) ? '● Devam Ediyor' : '○ Bekliyor';
 export const stageRecord = (item: PlanItem, type: PlanStage) => item.stages.find((s) => s.type === type);
 export function stageInput(item: PlanItem, type: PlanStage): PlanColor[] {
   const index = activeStages(item).indexOf(type);
@@ -49,7 +56,7 @@ export function stageAvailable(item: PlanItem, type: PlanStage) {
 export function itemStatus(item: PlanItem) {
   if (item.legacy?.completed || activeStages(item).every((s) => !!stageRecord(item, s)?.result)) return 'Tamamlandı';
   const current = activeStages(item).find((s) => !stageRecord(item, s)?.result)!;
-  if (stageRecord(item, current)) return ({ Kesim: 'Kesimde', Nakış: 'Nakışta', Baskı: 'Baskıda', Dikim: 'Dikimde', 'Ütü & Paket': 'Ütü/Pakette' })[current];
+  if (stageRecord(item, current)) return ({ Kesim: 'Kesimde', Uygulama: 'Uygulama Devam Ediyor', Nakış: 'Nakışta', Baskı: 'Baskıda', Dikim: 'Dikimde', 'Ütü & Paket': 'Ütü/Pakette' })[current];
   if (!item.stages.length) return 'Planlama';
   const finished = activeStages(item).filter((s) => !!stageRecord(item, s)?.result).at(-1);
   return finished ? `${finished} Tamamlandı` : 'Kesim Bekliyor';
@@ -80,6 +87,8 @@ export function validatePlanInput(input: PlanInput) {
     if (i.materials.length > 100) throw new Error('En fazla 100 malzeme girin.');
     for (const m of i.materials) { requireText(m.name, 'Malzeme adı', 200); if (m.description.length > 2000 || m.quantity.length > 100) throw new Error('Malzeme bilgisi çok uzun.'); }
     if (i.gsm.length > 2000 || i.fabricProperties.length > 2000) throw new Error('Kumaş bilgisi çok uzun.');
+    if (i.applicationPosition !== undefined && !['before', 'after'].includes(i.applicationPosition)) throw new Error('Uygulama sırası geçersiz.');
+    if ((i.applicationPosition !== undefined || i.enabledStages.includes('Uygulama')) && JSON.stringify(i.enabledStages) !== JSON.stringify(productionRoute(i.enabledStages.includes('Uygulama'), i.applicationPosition))) throw new Error('Üretim rotası Kesim ile başlamalı, Paket ile bitmelidir.');
     if (!['Kesim', 'Dikim', 'Ütü & Paket'].every((s) => i.enabledStages.includes(s as PlanStage)) || i.enabledStages.some((s) => !planStages.includes(s)) || new Set(i.enabledStages).size !== i.enabledStages.length) throw new Error('Kesim, Dikim ve Ütü/Paket aşamaları gereklidir.');
   }
 }

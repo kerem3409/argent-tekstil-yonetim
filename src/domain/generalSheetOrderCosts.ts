@@ -9,10 +9,10 @@ export function generalSheetOrderCosts(order: ProductionOrder, sources: CostSour
   const existing = generalSheetCosts(order, sources, automatic), fallback = productionCosts(order);
   const quantity = order.product.colors.reduce((sum, row) => sum + row.quantity, 0);
   const cut = stageRecord(order.product, 'Kesim')?.result?.rows.reduce((sum, row) => sum + row.quantity, 0);
-  const category = (key: string) => key === 'Nakış' || key === 'Baskı' ? 'Nakış / Baskı' : key === 'Ütü & Paket' ? 'Ütü / Paket' : key;
+  const category = (key: string) => key === 'Nakış' || key === 'Baskı' || key === 'Uygulama' ? 'Nakış / Baskı' : key === 'Ütü & Paket' ? 'Ütü / Paket' : key;
   const rows = sheetCostCategories.map((name) => {
     const linked = existing.selected.filter((s) => s.category === name);
-    const manual = fallback.rows.filter((r) => category(r.key) === name && order.costPricesMinor?.[r.key] !== undefined && !linked.some((s) => name !== 'Nakış / Baskı' || s.operation === r.key));
+    const manual = fallback.rows.filter((r) => category(r.key) === name && order.costPricesMinor?.[r.key] !== undefined && !linked.some((s) => name !== 'Nakış / Baskı' || r.key === 'Uygulama' || s.operation === r.key));
     const units = [
       ...linked.map((s) => {
         const denominator = name === 'Kumaş' ? cut : ['Etiket / Aksesuar / Malzeme', 'Diğer giderler'].includes(name) ? quantity : s.quantity;

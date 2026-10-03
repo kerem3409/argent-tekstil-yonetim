@@ -212,7 +212,7 @@ test('Genel Föy: mevcut kumaş, malzeme, fason ve gider kaynakları tek kez hes
 test('Tek Nakış/Baskı grubu teknik bilgileri ve ayrı sonuçları korur; başlanmış işlem türü değişmez', async () => {
   const f=await setup(); let o=await f.orders.create(f.input);
   o=await f.orders.saveDecoration(o.id,o.revision,['Nakış','Baskı'],{...emptyEmbroidery(),position:'Göğüs',color:'Mavi',notes:['Logo']},{...emptyEmbroidery(),position:'Sırt',color:'Beyaz'});
-  assert.deepEqual(stageGroups(o.product).map((g)=>g.name),['Kesim','Nakış / Baskı','Dikim','Ütü & Paket']);
+  assert.deepEqual(stageGroups(o.product).map((g)=>g.name),['Kesim','Uygulama','Dikim','Paket']);
   assert.equal(o.product.embroidery.color,'Mavi'); assert.equal(o.product.printing?.color,'Beyaz');
   o=await f.orders.savePlanning(o.id,o.revision,o.product.enabledStages.map((type)=>({type,companyId:f.supplier.id,plannedStart:o.date,dueDate:o.dueDate})));
   for(const type of ['Kesim','Nakış'] as const) { o=await f.orders.beginPlannedStage(o.id,o.revision,type); o=await f.orders.recordStageResult(o.id,o.revision,type,[{color:'Siyah',quantity:type==='Kesim'?100:95}],[]); }
@@ -245,6 +245,15 @@ test('Kesimden itibaren güncel maliyet, lojistik ve birim/toplu kalemler ortak 
   applied.product.enabledStages = ['Kesim', 'Nakış', 'Baskı', 'Dikim', 'Ütü & Paket'];
   for (const type of ['Nakış', 'Baskı'] as const) applied.product.stages.push({ type, companyId: f.supplier.id, date: o.date, notes: [], colorNotes: [], result: { date: o.date, rows: [{ color: 'Siyah', quantity: 100 }] } });
   assert.equal(actualProductionCosts(applied, data).rows.find((r) => r.name === 'Uygulama')?.total, 27500);
+  const unified = structuredClone(o);
+  unified.product.applicationPosition = 'after';
+  unified.product.enabledStages = ['Kesim', 'Dikim', 'Uygulama', 'Ütü & Paket'];
+  unified.product.stages.push({ type: 'Uygulama', companyId: f.supplier.id, date: o.date, notes: [], colorNotes: [], result: { date: o.date, rows: [{ color: 'Siyah', quantity: 95 }] } });
+  unified.costPricesMinor = { ...o.costPricesMinor, Uygulama: 250 };
+  data.production.stages.push({ id: 'application-source', number: 'FS-APP', jobId: o.stockSourceId, companyId: f.supplier.id, date: o.date, approvedDate: o.date, status: 'Tamamlandı', note: '', lines: [{ operation: 'Baskı', quantity: 100, returned: 95, priceType: 'Adet Fiyatı', priceMinor: 300 }] });
+  assert.equal(actualProductionCosts(unified, data).rows.find((r) => r.name === 'Uygulama')?.total, 30000);
+  const sources = costSources(data);
+  assert.equal(generalSheetCosts(unified, sources, automaticCostSources(unified, data, sources)).rows.find((r) => r.name === 'Nakış / Baskı')?.actual, 30000);
   await assert.rejects(f.orders.saveCosts(o.id, o.revision, {}, { ...details, logisticsMinor: -1 }));
   assert.deepEqual([...f.values.entries()], raw);
 });

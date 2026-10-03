@@ -14,11 +14,11 @@ export function productionCosts(order: ProductionOrder, prices = order.costPrice
   const cut = stageRecord(order.product, 'Kesim')?.result;
   const finalQuantity = stageRecord(order.product, 'Ütü & Paket')?.result?.rows.reduce((n,r) => n+r.quantity,0);
   const kg = cut && cut.rows.every((r) => r.kg !== undefined) ? cut.rows.reduce((n, r) => n + (r.kg ?? 0), 0) : undefined;
-  const rows = (['Kumaş', ...activeStages(order.product)] as Exclude<CostKey, 'Uygulama'>[]).map((key) => {
+  const rows = (['Kumaş', ...activeStages(order.product)] as CostKey[]).map((key) => {
     const result = key === 'Kumaş' ? undefined : stageRecord(order.product, key as PlanStage)?.result;
     const quantity = key === 'Kumaş' ? kg : result ? result.rows.reduce((n,r) => n + Math.max(r.quantity, stageInput(order.product, key as PlanStage).find((v) => colorKey(v.color) === colorKey(r.color))?.quantity ?? 0), 0) : undefined;
-    const application = key === 'Nakış' || key === 'Baskı';
-    const firstApplication = activeStages(order.product).find((s) => s === 'Nakış' || s === 'Baskı');
+    const application = key === 'Nakış' || key === 'Baskı' || key === 'Uygulama';
+    const firstApplication = activeStages(order.product).find((s) => s === 'Nakış' || s === 'Baskı' || s === 'Uygulama');
     const price = application && prices.Uygulama !== undefined ? (key === firstApplication ? prices.Uygulama : 0) : prices[key] ?? 0;
     const total = quantity === undefined ? undefined : amount(quantity, price);
     const denominator = finalQuantity ?? [...activeStages(order.product)].reverse().map((s) => stageRecord(order.product, s)?.result).find(Boolean)?.rows.reduce((n, r) => n + r.quantity, 0);

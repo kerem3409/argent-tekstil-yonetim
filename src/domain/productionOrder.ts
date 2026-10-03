@@ -7,7 +7,7 @@ import { validateSampleImages } from './sampleImages.ts';
 import type { SampleImage } from './sampleImages';
 import { validateOrderCosting } from './orderCosting.ts';
 import type { OrderCosting } from './orderCosting';
-import { itemStatus, validateNotes, validatePlanInput, validatePlanRecords } from './productionPlan.ts';
+import { currentStage, stageRecord, itemStatus, validateNotes, validatePlanInput, validatePlanRecords } from './productionPlan.ts';
 import type { PlanItem, ProductionPlan } from './productionPlan';
 
 export interface EmbroideryInfo { notes: string[]; colorNotes: { color: string; note: string }[]; position: string; size: string; technicalNote: string; color?: string }
@@ -28,6 +28,7 @@ export interface ProductionOrder {
   costPricesMinor?: CostPrices;
   costing?: OrderCosting;
   sheetCosts?: SheetCostSettings;
+  routeHistory?: { changedAt: string; product: Pick<OrderProduct, 'colors' | 'enabledStages' | 'applicationPosition' | 'stages'>; stagePlans?: StagePlan[] }[];
   resultHistory?: { type: import('./productionPlan').PlanStage; changedAt: string; previous: import('./productionPlan').PlanStageRecord['result'] }[];
 }
 export type OrderProductInput = Omit<OrderProduct, 'id' | 'productName' | 'brand' | 'stages' | 'stockTransfer' | 'legacy'>;
@@ -37,7 +38,12 @@ export interface OrderDraft { id: string; revision: number; updatedAt: string; i
 export const productionStarted = (o: ProductionOrder) => !!o.productionStartedAt || o.product.stages.length > 0 || !!o.product.legacy;
 export const stockStatus = (o: ProductionOrder) => o.product.stockTransfer ? 'Stoğa Aktarıldı' : itemStatus(o.product) === 'Tamamlandı' ? 'Stoğa Aktarılmayı Bekliyor' : 'Üretim Bekleniyor';
 export const orderGroup = (o: ProductionOrder) => itemStatus(o.product) === 'Tamamlandı' ? 'Tamamlandı' : productionStarted(o) ? 'Üretimde' : 'Planlama';
-export const orderProductionStatus = (o: ProductionOrder) => productionStarted(o) && itemStatus(o.product) === 'Planlama' ? 'Kesim Bekliyor' : itemStatus(o.product);
+export function orderProductionStatus(o: ProductionOrder) {
+  if (itemStatus(o.product) === 'Tamamlandı') return 'Tamamlandı';
+  const type = currentStage(o.product) as import('./productionPlan').PlanStage;
+  const name = type === 'Nakış' || type === 'Baskı' ? 'Uygulama' : type === 'Ütü & Paket' ? 'Paket' : type;
+  return name + (stageRecord(o.product, type) ? ' Devam Ediyor' : ' Bekliyor');
+}
 export const differenceText = (start: number, actual: number) => actual > start ? `+${actual - start} adet` : `${start - actual} fire`;
 export const emptyEmbroidery = (): EmbroideryInfo => ({ notes: [], colorNotes: [], position: '', size: '', technicalNote: '' });
 export const emptyPackaging = (): PackagingInfo => ({ type: '', sizeMode: '', note: '', labelingNote: '' });

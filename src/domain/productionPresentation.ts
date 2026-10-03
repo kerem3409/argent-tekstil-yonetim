@@ -1,7 +1,7 @@
 import { activeStages, stageRecord } from './productionPlan.ts';
 import type { PlanItem, PlanStage } from './productionPlan';
 
-export const displayStage = (stage: string) => stage === 'Nakış' || stage === 'Baskı' ? 'Nakış / Baskı' : stage;
+export const displayStage = (stage: string) => stage === 'Nakış' || stage === 'Baskı' ? 'Uygulama' : stage === 'Ütü & Paket' ? 'Paket' : stage;
 export function stageGroups(product: PlanItem) {
   const groups: { name: string; types: PlanStage[] }[] = [];
   for (const type of activeStages(product)) {

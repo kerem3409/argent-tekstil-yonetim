@@ -4,8 +4,8 @@ import { createDeletionPin } from './deletionPin.ts';
 import { validateWorkflowStore, PRODUCTION_STORAGE_KEY } from './workflowRepository.ts';
 import { migratedOrders } from './orderMigration.ts';
 import { checkDate, requireText, uid } from '../../domain/common.ts';
-import { activeStages, colorKey, isInternalPlan, itemStatus, stageAvailable, stageInput as stageInputFor, stageRecord, validateNotes, validatePlanInput } from '../../domain/productionPlan.ts';
-import { historicalBrandId, productApplicationCards, validateOrderProduct } from '../../domain/productionOrder.ts';
+import { productionRoute, activeStages, colorKey, isInternalPlan, itemStatus, stageAvailable, stageInput as stageInputFor, stageRecord, validateNotes, validatePlanInput } from '../../domain/productionPlan.ts';
+import { productionStarted, historicalBrandId, productApplicationCards, validateOrderProduct } from '../../domain/productionOrder.ts';
 import type { ApplicationCard, ProductionBrand, ProductionOrder, ProductionOrderInput, OrderProduct } from '../../domain/productionOrder';
 import type { PlanStage, PlanStageRecord } from '../../domain/productionPlan';
 import type { WorkflowStore } from '../../domain/productionWorkflow';
@@ -43,7 +43,7 @@ export function createOrderRepository(storage: () => StoragePort, deps: Dependen
   }
   function editable(o: ProductionOrder) { if (o.product.legacy?.readOnly || o.product.legacy?.completed) throw new Error('Bu ürünün eski işlemleri salt okunur korunuyor.'); return o.product; }
   async function customer(id: string, previous?: string) { requireText(id, 'Müşteri'); if (isInternalPlan({ customerId: id }) || id === previous) return; const c = await deps.contacts.get(id); if (!c || c.status !== 'Aktif' || !c.roles.includes('Hazır Giyim Müşterisi')) throw new Error('Aktif müşteri seçin.'); }
-  async function company(type: PlanStage, id: string) { const c = await deps.contacts.get(id); if (!c || c.status !== 'Aktif' || !c.roles.includes('Fasoncu') || !c.services.includes(type)) throw new Error(`${type} hizmeti veren aktif bir Fasoncu seçin.`); }
+  async function company(type: PlanStage, id: string) { const c = await deps.contacts.get(id); if (!c || c.status !== 'Aktif' || !c.roles.includes('Fasoncu') || !(type === 'Uygulama' ? c.services.some((s) => s === 'Nakış' || s === 'Baskı' || s === 'Uygulama') : c.services.includes(type))) throw new Error(`${type} hizmeti veren aktif bir Fasoncu seçin.`); }
   async function costing(value: OrderCosting | undefined, previous?: OrderCosting) {
     validateOrderCosting(value); if (!value) return;
     const oldIds = [previous?.fabricCompanyId, ...(previous?.extras ?? []).map((r) => r.companyId), ...(previous?.accessories ?? []).map((r) => r.companyId)];
@@ -75,8 +75,32 @@ export function createOrderRepository(storage: () => StoragePort, deps: Dependen
     validatePlanInput({ ...input, items: [p] }); validateOrderProduct(p);
     if (input.customerNote.length > 2000) throw new Error('Müşteri notu çok uzun.'); return p;
   }
+  function changeRoute(o: ProductionOrder, application: boolean, position: 'before' | 'after', confirmed: boolean) {
+    if (!['before', 'after'].includes(position)) throw new Error('Uygulama sırası geçersiz.');
+    const p = editable(o), next = productionRoute(application, position), previous = activeStages(p);
+    if (JSON.stringify(next) === JSON.stringify(previous) && p.applicationPosition === position) return;
+    if (p.stockTransfer) throw new Error('Stoğa aktarılmış üretimin rotası değiştirilemez.');
+    const affected = p.stages.some((s) => !next.includes(s.type) || previous.indexOf(s.type) !== next.indexOf(s.type));
+    if (affected && !confirmed) throw new Error('Başlamış aşamalar etkileniyor. Akış değişikliğini onaylayın.');
+    if (p.stages.length) (o.routeHistory ??= []).push({ changedAt: new Date().toISOString(), product: { colors: structuredClone(p.colors), enabledStages: [...p.enabledStages], applicationPosition: p.applicationPosition, stages: structuredClone(p.stages) }, stagePlans: structuredClone(o.stagePlans) });
+    const legacyTypes = previous.filter((t) => t === 'Nakış' || t === 'Baskı');
+    if (application && legacyTypes.length && !stageRecord(p, 'Uygulama')) {
+      const records = legacyTypes.map((t) => stageRecord(p, t)), last = records.filter(Boolean).at(-1);
+      if (last) p.stages.push({ ...structuredClone(last), type: 'Uygulama', result: records.every((r) => r?.result) ? structuredClone(last.result) : null });
+      const oldPlan = o.stagePlans?.filter((plan) => legacyTypes.some((t) => t === plan.type)).at(-1);
+      if (oldPlan) o.stagePlans = [...(o.stagePlans ?? []), { ...oldPlan, type: 'Uygulama' }];
+      if (o.costPricesMinor?.Uygulama === undefined && o.costPricesMinor && legacyTypes.some((t) => o.costPricesMinor?.[t] !== undefined)) o.costPricesMinor.Uygulama = legacyTypes.reduce((n, t) => n + (o.costPricesMinor?.[t] ?? 0), 0);
+    }
+    p.stages = p.stages.filter((r) => next.includes(r.type));
+    p.enabledStages = next; p.applicationPosition = position;
+    o.stagePlans = o.stagePlans?.filter((r) => next.includes(r.type));
+  }
   return {
     deletionPin,
+    async saveRoute(id: string, revision: number, application: boolean, position: 'before' | 'after', confirmed = false) {
+      if (typeof application !== 'boolean') throw new Error('Uygulama seçimi geçersiz.');
+      return store.transact(async (data) => { const o = await find(data, id, revision); changeRoute(o, application, position, confirmed); return save(data, o); });
+    },
     async load() { return all(await store.load()); },
     async list() { return (await all(await store.load())).orders; },
     async listBrands() { return brands(await store.load()); },
@@ -99,9 +123,9 @@ export function createOrderRepository(storage: () => StoragePort, deps: Dependen
       if (new Set(types).size !== types.length || types.some((t) => !['Nakış', 'Baskı'].includes(t))) throw new Error('İşlem türü geçersiz.');
       return store.transact(async (data) => {
         const o = await find(data, id, revision), p = editable(o);
-        const changed = ['Nakış', 'Baskı'].some((t) => p.enabledStages.includes(t as PlanStage) !== types.includes(t as 'Nakış' | 'Baskı'));
-        if (changed && (p.stockTransfer || p.stages.some((s) => ['Nakış', 'Baskı', 'Dikim', 'Ütü & Paket'].includes(s.type)))) throw new Error('İşlem başladığı için tür değiştirilemez. Teknik bilgiler düzenlenebilir.');
-        p.enabledStages = ['Kesim', ...types, 'Dikim', 'Ütü & Paket'];
+        const changed = p.applicationPosition !== undefined ? p.enabledStages.includes('Uygulama') !== (types.length > 0) : ['Nakış', 'Baskı'].some((t) => p.enabledStages.includes(t as PlanStage) !== types.includes(t as 'Nakış' | 'Baskı'));
+        if (changed && (p.stockTransfer || p.stages.some((s) => ['Uygulama', 'Nakış', 'Baskı', 'Dikim', 'Ütü & Paket'].includes(s.type)))) throw new Error('İşlem başladığı için tür değiştirilemez. Teknik bilgiler düzenlenebilir.');
+        p.enabledStages = p.applicationPosition !== undefined ? productionRoute(types.length > 0, p.applicationPosition) : ['Kesim', ...types, 'Dikim', 'Ütü & Paket'];
         p.embroidery = { ...structuredClone(embroidery), notes: embroidery.notes.map((s) => s.trim()).filter(Boolean), colorNotes: p.embroidery.colorNotes };
         p.printing = { ...structuredClone(printing), notes: printing.notes.map((s) => s.trim()).filter(Boolean), colorNotes: p.printing?.colorNotes ?? [] };
         o.stagePlans = o.stagePlans?.filter((s) => p.enabledStages.includes(s.type)); validateOrderProduct(p); return save(data, o);
@@ -112,10 +136,11 @@ export function createOrderRepository(storage: () => StoragePort, deps: Dependen
       for (const card of cards) validateNotes(card.notes);
       return store.transact(async (data) => {
         const o = await find(data, id, revision), p = editable(o), types = [...new Set(cards.map((card) => card.type))];
-        const changed = productApplicationCards(p).map((card) => card.type).sort().join('|') !== cards.map((card) => card.type).sort().join('|');
-        if (changed && (p.stockTransfer || p.stages.some((s) => ['Nakış', 'Baskı', 'Dikim', 'Ütü & Paket'].includes(s.type)))) throw new Error('İşlem başladıktan sonra uygulama türü değiştirilemez.');
+        const existingCards = productApplicationCards(p);
+        const changed = p.applicationPosition !== undefined ? (existingCards.length > 0) !== (cards.length > 0) : existingCards.map((card) => card.type).sort().join('|') !== cards.map((card) => card.type).sort().join('|');
+        if (changed && (p.stockTransfer || p.stages.some((s) => ['Uygulama', 'Nakış', 'Baskı', 'Dikim', 'Ütü & Paket'].includes(s.type)))) throw new Error('İşlem başladıktan sonra uygulama türü değiştirilemez.');
         p.applicationCards = structuredClone(cards).map((card) => ({ ...card, notes: card.notes.map((note) => note.trim()).filter(Boolean) }));
-        p.enabledStages = ['Kesim', ...(types.includes('Baskı') ? ['Baskı' as const] : []), ...(types.includes('Nakış') ? ['Nakış' as const] : []), 'Dikim', 'Ütü & Paket'];
+        p.enabledStages = p.applicationPosition !== undefined ? (changed ? productionRoute(types.length > 0, p.applicationPosition) : p.enabledStages) : ['Kesim', ...(types.includes('Baskı') ? ['Baskı' as const] : []), ...(types.includes('Nakış') ? ['Nakış' as const] : []), 'Dikim', 'Ütü & Paket'];
         o.stagePlans = o.stagePlans?.filter((plan) => p.enabledStages.includes(plan.type));
         validateOrderProduct(p); return save(data, o);
       });
@@ -217,7 +242,28 @@ export function createOrderRepository(storage: () => StoragePort, deps: Dependen
         (data.productionOrders ??= []).push(o); return o;
       });
     },
-    async update(id: string, revision: number, input: ProductionOrderInput) { return store.transact(async (data) => { const o = await find(data, id, revision); const i = editable(o); if (i.stages.length) throw new Error('Üretim başladığı için sipariş bilgileri kilitlidir.'); await customer(input.customerId, o.customerId); const p = await product(data, input, i); validateCostPrices(input.costPricesMinor ?? o.costPricesMinor ?? {}); await costing(input.costing ?? o.costing, o.costing); if (input.costPricesMinor !== undefined) o.costPricesMinor = { ...input.costPricesMinor }; if (input.costing !== undefined) o.costing = structuredClone(input.costing); Object.assign(o, { name: input.name.trim(), customerId: input.customerId, date: input.date, dueDate: input.dueDate, customerReference: input.customerReference, customerNote: input.customerNote, note: input.note, product: p }); return save(data, o); }); },
+    async update(id: string, revision: number, input: ProductionOrderInput, pin = '', confirmed = false) {
+      return store.transact(async (data) => {
+        const o = await find(data, id, revision), i = editable(o), started = productionStarted(o);
+        if (started) await deletionPin.verify(pin);
+        const critical = JSON.stringify(i.colors) !== JSON.stringify(input.product.colors) || JSON.stringify(i.enabledStages) !== JSON.stringify(input.product.enabledStages) || i.applicationPosition !== input.product.applicationPosition;
+        if (started && critical && !confirmed) throw new Error('Renk, adet veya üretim rotası değişiyor. Değişikliği onaylayın.');
+        await customer(input.customerId, o.customerId);
+        const p = await product(data, input, i);
+        if (started) {
+          if (i.stockTransfer && (critical || p.brandId !== i.brandId || p.productDefinitionId !== i.productDefinitionId)) throw new Error('Stoğa aktarılmış renk, adet, ürün, marka veya rota değiştirilemez.');
+          if (i.stages.length && (i.colors.length !== p.colors.length || i.colors.some((r) => !p.colors.some((v) => colorKey(v.color) === colorKey(r.color))))) throw new Error('Gerçekleşen kayıtları olan renkler kaldırılamaz veya yeniden adlandırılamaz. Önce ilgili aşama sonuçlarını düzeltin.');
+          if (critical && JSON.stringify(activeStages(i)) === JSON.stringify(activeStages(p))) (o.routeHistory ??= []).push({ changedAt: new Date().toISOString(), product: { colors: structuredClone(i.colors), enabledStages: [...i.enabledStages], applicationPosition: i.applicationPosition, stages: structuredClone(i.stages) }, stagePlans: structuredClone(o.stagePlans) });
+          if (JSON.stringify(activeStages(i)) !== JSON.stringify(activeStages(p))) changeRoute(o, p.enabledStages.includes('Uygulama'), p.applicationPosition ?? 'before', confirmed);
+          p.stages = structuredClone(o.product.stages); p.stockTransfer = structuredClone(i.stockTransfer);
+        }
+        validateCostPrices(input.costPricesMinor ?? o.costPricesMinor ?? {}); await costing(input.costing ?? o.costing, o.costing);
+        if (input.costPricesMinor !== undefined) o.costPricesMinor = { ...input.costPricesMinor };
+        if (input.costing !== undefined) o.costing = structuredClone(input.costing);
+        Object.assign(o, { name: input.name.trim(), customerId: input.customerId, date: input.date, dueDate: input.dueDate, customerReference: input.customerReference, customerNote: input.customerNote, note: input.note, product: p });
+        return save(data, o);
+      });
+    },
     async startStage(id: string, revision: number, type: PlanStage, input: StageInput) {
       requireText(input.companyId, 'Fasoncu / Firma'); checkDate(input.date); validateNotes(input.notes);
       const c = await deps.contacts.get(input.companyId); if (!c || c.status !== 'Aktif' || !c.roles.includes('Fasoncu') || !c.services.includes(type)) throw new Error(`${type} hizmeti veren aktif bir Fasoncu seçin.`);

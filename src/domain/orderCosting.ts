@@ -58,7 +58,7 @@ export function actualProductionCosts(order: ProductionOrder, data?: CostSourceD
     lines.push({ id: s.id, sourceId: s.id, name: s.description, category: material?.category === 'Ütü & Paket Malzemeleri' ? 'Ütü / Paket Malzemeleri' : cat(s.category), quantity: s.quantity, total: s.category === 'Kumaş' && order.costPricesMinor?.Kumaş !== undefined ? amount(s.quantity, order.costPricesMinor.Kumaş) : s.total, companyId: '', date: s.date, payable: false });
   }
   for (const r of productionCosts(order).rows) {
-    if (r.key === 'Kumaş' ? fabricSources.length : selected.some((s) => s.operation === r.key || (s.category === cat(r.key) && !s.operation))) continue;
+    if (r.key === 'Kumaş' ? fabricSources.length : selected.some((s) => s.operation === r.key || (r.key === 'Uygulama' && cat(s.category) === 'Uygulama') || (s.category === cat(r.key) && !s.operation))) continue;
     const stage = r.key === 'Kumaş' ? stageRecord(p, 'Kesim') : stageRecord(p, r.key);
     lines.push({ id: `price:${r.key}`, name: r.key, category: cat(r.key), quantity: r.quantity, total: order.costPricesMinor?.[r.key] === undefined && !(['Nakış', 'Baskı'].includes(r.key) && order.costPricesMinor?.Uygulama !== undefined) ? undefined : r.total, companyId: r.key === 'Kumaş' ? settings?.fabricCompanyId ?? '' : stage?.companyId ?? '', date: stage?.result?.date ?? order.date, payable: !!settings && !!stage?.result });
   }

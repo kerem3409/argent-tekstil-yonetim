@@ -1,5 +1,5 @@
 export const contactRoles = ['Hazır Giyim Tedarikçisi', 'Kumaş Tedarikçisi', 'Malzeme Tedarikçisi', 'Fasoncu', 'Hazır Giyim Müşterisi'] as const;
-export const subcontractServices = ['Kesim', 'Nakış', 'Baskı', 'Dikim', 'Ütü & Paket', 'Diğer'] as const;
+export const subcontractServices = ['Kesim', 'Nakış', 'Baskı', 'Uygulama', 'Dikim', 'Ütü & Paket', 'Diğer'] as const;
 export type ContactRole = typeof contactRoles[number];
 export type SubcontractService = typeof subcontractServices[number];
 

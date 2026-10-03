@@ -11,7 +11,8 @@ import type { PlanStage } from '../src/domain/productionPlan';
 import { createOrderDrafts, DRAFT_KEY } from '../src/data/production/orderDrafts.ts';
 import { stockStatus, differenceText } from '../src/domain/productionOrder.ts';
 import { liveGroups, stagePlan } from '../src/domain/productionPlanning.ts';
-import { currentCompany, activeStages } from '../src/domain/productionPlan.ts';
+import { currentCompany, activeStages, currentQuantity, productionRoute, stageAvailable, stageState } from '../src/domain/productionPlan.ts';
+import { orderProductionStatus } from '../src/domain/productionOrder.ts';
 
 async function fixture() {
   const values = new Map<string, string>();
@@ -186,4 +187,70 @@ test('Eski planın özellikleri düzenlenirken ham plan ve diğer alanlar deği�
   assert.deepEqual(after.unifiedPlans, raw.unifiedPlans);
   assert.deepEqual(order.product.instructions, ['Etiket', 'Ribana', 'Yeni madde']);
   assert.deepEqual((await repo.list()).find((o) => o.id === order.id)?.product, order.product);
+});
+
+test('Uygulama tek aşama: iki güvenli rota, gerçek durum ve rotaya göre güncel adet', async () => {
+  for (const position of ['before', 'after'] as const) {
+    const { repo, input, values } = await fixture();
+    const route = productionRoute(true, position);
+    let o = await repo.create({ ...input, product: { ...input.product, applicationPosition: position, enabledStages: route } });
+    assert.deepEqual(activeStages(o.product), route); assert.equal(currentQuantity(o.product), undefined);
+    const rows = (count: number) => [{ color: 'Siyah', quantity: count }, { color: 'Beyaz', quantity: 290 }];
+    for (const [index, type] of route.entries()) {
+      assert.equal(stageState(o.product, type), '○ Bekliyor');
+      assert.equal(orderProductionStatus(o), `${type === 'Ütü & Paket' ? 'Paket' : type} Bekliyor`);
+      o = await repo.beginPlannedStage(o.id, o.revision, type, { type, companyId: type, plannedStart: input.date, dueDate: input.dueDate });
+      assert.equal(stageState(o.product, type), '● Devam Ediyor');
+      if (index > 0) assert.equal(stageInput(o.product, type)[0].quantity, 510 - (index - 1) * 5);
+      o = await repo.recordStageResult(o.id, o.revision, type, rows(510 - index * 5), []);
+      assert.equal(stageState(o.product, type), '✓ Tamamlandı'); assert.equal(currentQuantity(o.product), 800 - index * 5);
+    }
+    assert.equal(orderProductionStatus(o), 'Tamamlandı');
+    const raw = values.get('argent-tekstil.production.v1');
+    await assert.rejects(repo.create({ ...input, product: { ...input.product, applicationPosition: position, enabledStages: ['Dikim', 'Kesim', 'Ütü & Paket'] } }), /rota/);
+    assert.equal(values.get('argent-tekstil.production.v1'), raw);
+  }
+});
+
+test('Akış düzeltmesi onay ister, geçmişi ve sonraki sonuçları korur; uyumsuz değişiklik atomik reddedilir', async () => {
+  const { repo, input, values } = await fixture();
+  let o = await repo.create({ ...input, product: { ...input.product, applicationCards: [{ id: 'technical', type: 'Baskı', notes: ['Logo'] }], applicationPosition: 'before', enabledStages: productionRoute(true) } });
+  const rows = (count: number) => [{ color: 'Siyah', quantity: count }, { color: 'Beyaz', quantity: 290 }];
+  for (const [type, count] of [['Kesim', 510], ['Uygulama', 505], ['Dikim', 500]] as const) {
+    o = await repo.beginPlannedStage(o.id, o.revision, type, { type, companyId: type, plannedStart: input.date, dueDate: input.dueDate });
+    o = await repo.recordStageResult(o.id, o.revision, type, rows(count), []);
+  }
+  const raw = values.get('argent-tekstil.production.v1');
+  await assert.rejects(repo.saveRoute(o.id, o.revision, false, 'before'), /onaylayın/);
+  await assert.rejects(repo.saveRoute(o.id, o.revision, true, 'after', true));
+  assert.equal(values.get('argent-tekstil.production.v1'), raw);
+  const sewing = structuredClone(o.product.stages.find((s) => s.type === 'Dikim'));
+  o = await repo.saveRoute(o.id, o.revision, false, 'before', true);
+  assert.deepEqual(activeStages(o.product), productionRoute(false));
+  assert.deepEqual(o.product.stages.find((s) => s.type === 'Dikim'), sewing);
+  assert.equal(o.routeHistory?.[0].product.stages.find((s) => s.type === 'Uygulama')?.result?.rows[0].quantity, 505);
+  assert.equal(currentQuantity(o.product), 790); assert.ok(stageAvailable(o.product, 'Ütü & Paket'));
+  o = await repo.saveApplicationCards(o.id, o.revision, [{ id: 'technical', type: 'Baskı', notes: ['Düzeltilen teknik not'] }]);
+  assert.deepEqual(activeStages(o.product), productionRoute(false));
+  assert.deepEqual(o.product.stages.find((s) => s.type === 'Dikim'), sewing);
+});
+
+test('Başlamış sipariş yalnız mevcut PIN ile düzenlenir; kritik değişiklik onay ister ve sonuçları korur', async () => {
+  const { repo, input, values } = await fixture();
+  let o = await repo.create({ ...input, product: { ...input.product, applicationPosition: 'before', enabledStages: productionRoute(false) } });
+  await repo.deletionPin.setup('safe-pin', 'safe-pin');
+  o = await repo.beginPlannedStage(o.id, o.revision, 'Kesim', { type: 'Kesim', companyId: 'Kesim', plannedStart: input.date, dueDate: input.dueDate });
+  o = await repo.recordStageResult(o.id, o.revision, 'Kesim', [{ color: 'Siyah', quantity: 510 }, { color: 'Beyaz', quantity: 290 }], []);
+  const next = { ...input, note: 'Düzeltilen sipariş', product: { ...o.product } };
+  const raw = values.get('argent-tekstil.production.v1'), results = structuredClone(o.product.stages);
+  await assert.rejects(repo.update(o.id, o.revision, next, 'wrong-pin'), /yanlış/);
+  assert.equal(values.get('argent-tekstil.production.v1'), raw);
+  o = await repo.update(o.id, o.revision, next, 'safe-pin'); assert.deepEqual(o.product.stages, results);
+  const critical = { ...next, product: { ...next.product, colors: [{ color: 'Siyah', quantity: 550 }, { color: 'Beyaz', quantity: 300 }] } };
+  await assert.rejects(repo.update(o.id, o.revision, critical, 'safe-pin'), /onaylayın/);
+  o = await repo.update(o.id, o.revision, critical, 'safe-pin', true); assert.deepEqual(o.product.stages, results);
+  assert.equal(o.product.colors[0].quantity, 550); assert.equal(o.routeHistory?.length, 1);
+  const beforeRename = values.get('argent-tekstil.production.v1');
+  await assert.rejects(repo.update(o.id, o.revision, { ...critical, product: { ...critical.product, colors: [{ color: 'Lacivert', quantity: 550 }, { color: 'Beyaz', quantity: 300 }] } }, 'safe-pin', true), /renkler/);
+  assert.equal(values.get('argent-tekstil.production.v1'), beforeRename);
 });

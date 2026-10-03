@@ -39,9 +39,9 @@ export function generalSheetCosts(order: ProductionOrder, sources: CostSource[],
   validateSheetCosts(settings);
   const selected = sources.filter((s) => settings.sources.includes(s.id) || automatic.some((a) => a.id === s.id));
   const fallback = productionCosts(order);
-  const category = (key: string) => key === 'Nakış' || key === 'Baskı' ? 'Nakış / Baskı' : key === 'Ütü & Paket' ? 'Ütü / Paket' : key;
+  const category = (key: string) => key === 'Nakış' || key === 'Baskı' || key === 'Uygulama' ? 'Nakış / Baskı' : key === 'Ütü & Paket' ? 'Ütü / Paket' : key;
   const rows = sheetCostCategories.map((name) => {
-    const linked = selected.filter((s) => s.category === name), manual = fallback.rows.filter((r) => order.costPricesMinor?.[r.key] !== undefined && category(r.key) === name && !linked.some((s) => name !== 'Nakış / Baskı' || s.operation === r.key));
+    const linked = selected.filter((s) => s.category === name), manual = fallback.rows.filter((r) => order.costPricesMinor?.[r.key] !== undefined && category(r.key) === name && !linked.some((s) => name !== 'Nakış / Baskı' || r.key === 'Uygulama' || s.operation === r.key));
     const actual = linked.length || manual.some((r) => r.total !== undefined) ? linked.reduce((n, s) => n + s.total, 0) + manual.reduce((n, r) => n + (r.total ?? 0), 0) : undefined;
     const estimated = settings.estimated[name];
     return { name, actual, estimated, difference: actual !== undefined && estimated !== undefined ? actual - estimated : undefined, source: linked.length ? `${linked.length} bağlı kayıt` : manual.length ? 'Üretim miktarı × kayıtlı birim fiyat' : 'Kayıt bağlanmadı' };

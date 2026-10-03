@@ -1,4 +1,4 @@
-import { colorKey, stageInput, stageRecord } from '../../domain/productionPlan';
+import { latestStageResult, colorKey, stageInput, stageRecord } from '../../domain/productionPlan';
 import type { PlanStage } from '../../domain/productionPlan';
 import { groupResult } from '../../domain/productionPresentation';
 import { stagePlan } from '../../domain/productionPlanning';
@@ -8,8 +8,8 @@ import { Section, companyName } from '../shared/WorkshopUI';
 
 export function QuantityTracking({ order, contacts = [], pairedAssignments = false, compact = false }: { order: ProductionOrder; contacts?: Contact[]; pairedAssignments?: boolean; compact?: boolean }) {
   const p = order.product;
-  const groups: { name: string; types: PlanStage[] }[] = [{ name: 'Kesim', types: ['Kesim'] }, { name: 'Uygulama', types: (['Nakış', 'Baskı'] as PlanStage[]).filter((s) => p.enabledStages.includes(s)) }, { name: 'Dikim', types: ['Dikim'] }, { name: 'Paket', types: ['Ütü & Paket'] }];
-  const results = groups.map((g) => groupResult(p, g.types)), latest = [...results].reverse().find(Boolean);
+  const groups: { name: string; types: PlanStage[] }[] = [{ name: 'Kesim', types: ['Kesim'] }, { name: 'Uygulama', types: (['Uygulama', 'Nakış', 'Baskı'] as PlanStage[]).filter((s) => p.enabledStages.includes(s)) }, { name: 'Dikim', types: ['Dikim'] }, { name: 'Paket', types: ['Ütü & Paket'] }];
+  const results = groups.map((g) => groupResult(p, g.types)), latest = latestStageResult(p);
   const amount = (rows: { color: string; quantity: number }[] | undefined, color?: string) => rows ? rows.filter((r) => !color || colorKey(r.color) === colorKey(color)).reduce((n, r) => n + r.quantity, 0) : undefined;
   const requested = amount(p.colors)!, completed = amount(latest?.rows);
   const fire = (color?: string) => { const cut = amount(results[0]?.rows, color), actual = amount(latest?.rows, color); return cut === undefined || actual === undefined ? '—' : Math.max(0, cut - actual); };
