@@ -1,3 +1,4 @@
+import { createDeletionPin } from '../production/deletionPin.ts';
 import { entryQuantity, entryTypes, purchaseAmount, validCount, validDate, validateStock } from '../../features/products/model.ts';
 import type { PendingAccountMovement, ProductStore, StockInput, StockMovement, StockRecord } from '../../features/products/model.ts';
 import type { ContactRepository } from '../contacts/repository';
@@ -19,6 +20,7 @@ function assertStore(value: unknown): asserts value is ProductStore {
   for (const record of data.records) {
     if (!record || ['id', 'batch', 'name', 'brand', 'detail', 'fabric', 'grammage', 'color', 'series', 'assortment', 'date', 'note', 'supplierId', 'createdAt'].some((key) => typeof record[key as keyof StockRecord] !== 'string')) throw new Error();
     if (!record.id || ids.has(record.id) || !/^P-\d{4,}$/.test(record.batch) || Number(record.batch.slice(2)) >= data.nextBatch || !record.name.trim() || !record.color.trim() || !validDate(record.date) || !validCount(record.quantity) || !validCount(record.packSize) || record.packSize < 1 || !validCount(record.initialPackCount) || !Number.isSafeInteger(record.unitCostMinor) || record.unitCostMinor < 0 || !['Aktif', 'Pasif'].includes(record.status) || !entryTypes.includes(record.entryType)) throw new Error();
+    if (record.trash && (typeof record.trash.deletedAt !== 'string' || !Number.isFinite(Date.parse(record.trash.deletedAt)) || !validCount(record.trash.quantity) || record.trash.quantity !== record.quantity || !['Aktif', 'Pasif'].includes(record.trash.previousStatus) || record.status !== 'Pasif')) throw new Error();
     ids.add(record.id);
   }
   const balances = new Map<string, number>();
@@ -50,6 +52,7 @@ function assertStore(value: unknown): asserts value is ProductStore {
 }
 
 export function createProductRepository(getStorage: () => StoragePort, contacts: Pick<ContactRepository, 'get'>, lock: Lock = (work) => work(), definitions?: ProductDefinitionRepository): ProductRepository {
+  const deletionPin = createDeletionPin(getStorage, (_key, work) => lock(work));
   function read(): ProductStore {
     let raw: string | null;
     try { raw = getStorage().getItem(PRODUCTS_STORAGE_KEY); }
@@ -71,6 +74,7 @@ export function createProductRepository(getStorage: () => StoragePort, contacts:
   function stock(data: ProductStore, id: string) {
     const record = data.records.find((item) => item.id === id);
     if (!record) throw new Error('Stok kaydı bulunamadı.');
+    if (record.trash) throw new Error('Stok Çöp Kutusunda. Önce geri yükleyin.');
     return record;
   }
   function movement(data: ProductStore, record: StockRecord, delta: number, date: string, type: StockMovement['type'], description: string) {
@@ -91,6 +95,33 @@ export function createProductRepository(getStorage: () => StoragePort, contacts:
       amountMinor, currency: 'TRY', date: item.date, description: item.description, status: 'pending' });
   }
   return {
+    deletionPin,
+    async trash(id, pin, expectedQuantity) {
+      await deletionPin.verify(pin);
+      return lock(async () => {
+        const data = read(), record = stock(data, id);
+        if (record.quantity !== expectedQuantity) throw new Error('Stok adedi değişti. Listeyi yenileyin.');
+        record.trash = { deletedAt: new Date().toISOString(), quantity: record.quantity, previousStatus: record.status };
+        record.status = 'Pasif'; write(data);
+      });
+    },
+    async restore(id, deletedAt) {
+      return lock(async () => {
+        const data = read(), record = data.records.find((r) => r.id === id);
+        if (!record?.trash || record.trash.deletedAt !== deletedAt) throw new Error('Çöp Kutusu kaydı değişti. Listeyi yenileyin.');
+        record.status = record.trash.previousStatus; delete record.trash; write(data);
+      });
+    },
+    async permanentlyDelete(id, pin, deletedAt) {
+      await deletionPin.verify(pin);
+      return lock(async () => {
+        const data = read(), record = data.records.find((r) => r.id === id);
+        if (!record?.trash || record.trash.deletedAt !== deletedAt) throw new Error('Çöp Kutusu kaydı değişti. Listeyi yenileyin.');
+        const movements = data.movements.filter((m) => m.stockId === id);
+        if (record.productionJobId || record.productionNo || record.productionRowId || data.productionReceipts?.some((r) => r.stockIds.includes(id)) || data.sales?.some((s) => s.stockId === id) || data.accountMovements.some((m) => m.stockId === id) || movements.length !== 1 || movements[0].type !== record.entryType || movements[0].outgoing > 0 || movements[0].sourceSaleId) throw new Error('Üretim, satış, cari veya ek stok hareketine bağlı kayıt kalıcı silinemez. Geçmişi korumak için Çöp Kutusunda tutulur; geri yükleyebilirsiniz.');
+        data.records = data.records.filter((r) => r.id !== id); data.movements = data.movements.filter((m) => m.stockId !== id); write(data);
+      });
+    },
     async load() { const data = read(); if (definitions) { const list = await definitions.list(); data.records = data.records.map((r) => resolveDefinition(r, list)); } return data; },
     async sell(input) {
       return lock(async () => {
@@ -139,7 +170,7 @@ export function createProductRepository(getStorage: () => StoragePort, contacts:
         const errors = validateStock(input);
         if (errors.length) throw new Error(errors.join(' '));
         const data = read();
-        let existing = input.existingBatch ? data.records.find((item) => item.batch === input.existingBatch) : undefined;
+        let existing = input.existingBatch ? data.records.find((item) => item.batch === input.existingBatch && !item.trash) : undefined;
         if (input.existingBatch && !existing) throw new Error('Seçilen parti bulunamadı.');
         if (existing && definitions) existing = resolveDefinition(existing, definitionList);
         if (existing && ((existing.productDefinitionId ? existing.productDefinitionId !== input.productDefinitionId : existing.name !== input.name.trim()) || existing.brand !== input.brand.trim())) throw new Error('Aynı partide ürün adı ve marka aynı olmalıdır.');

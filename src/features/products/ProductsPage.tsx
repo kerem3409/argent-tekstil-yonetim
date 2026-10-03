@@ -1,3 +1,5 @@
+import { StockDeletionDialog } from './StockDeletionDialog';
+import { Action, Table } from '../shared/WorkshopUI';
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { productRepository } from '../../data/products';
@@ -18,6 +20,7 @@ export function ProductsPage() {
   const id = params.get('id') ?? '';
   const [data, setData] = useState<ProductStore | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [deletion, setDeletion] = useState<{ record: StockRecord; permanent: boolean }>();
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [attempt, setAttempt] = useState(0);
@@ -55,17 +58,18 @@ export function ProductsPage() {
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Durum değiştirilemedi.'); }
     finally { statusBusy.current = false; setBusy(false); }
   }
-  const selected = data?.records.find((item) => item.id === id);
-  const title = mode === 'satis' ? 'Satış Yap / Stok Çıkışı' : mode === 'yeni' ? 'Yeni Stok Girişi' : mode === 'duzelt' ? 'Stok Düzelt' : mode === 'iade' ? 'İade' : mode === 'gecmis' ? 'Stok Detayı ve Hareket Geçmişi' : 'Stoktaki Ürünler';
+  const selected = data?.records.find((item) => item.id === id && !item.trash);
+  const title = mode === 'cop' ? 'Stok Çöp Kutusu' : mode === 'satis' ? 'Satış Yap / Stok Çıkışı' : mode === 'yeni' ? 'Yeni Stok Girişi' : mode === 'duzelt' ? 'Stok Düzelt' : mode === 'iade' ? 'İade' : mode === 'gecmis' ? 'Stok Detayı ve Hareket Geçmişi' : 'Stoktaki Ürünler';
   const records = data ? filterStock(data.records, filters) : [];
-  function options(key: 'brand' | 'batch' | 'color') { return [...new Set(data?.records.map((item) => item[key]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'tr')); }
+  function options(key: 'brand' | 'batch' | 'color') { return [...new Set(data?.records.filter((r) => !r.trash).map((item) => item[key]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'tr')); }
   return <div className="products-module">
-    <div className="page-heading"><div><h1 id="products-heading" tabIndex={-1}>{title}</h1><p>Hazır ürün stoklarını parti, renk ve seri / asorti bazında takip edin.</p></div><div className="product-actions">{mode ? <button className="button product-secondary" onClick={() => navigate()}>Listeye dön</button> : <button className="button" disabled={!data || !!error} onClick={() => navigate('yeni')}>Yeni Stok Girişi</button>}</div></div>
+    <div className="page-heading"><div><h1 id="products-heading" tabIndex={-1}>{title}</h1><p>Hazır ürün stoklarını parti, renk ve seri / asorti bazında takip edin.</p></div><div className="product-actions">{mode ? <button className="button product-secondary" onClick={() => navigate()}>Listeye dön</button> : <><button className="button" disabled={!data || !!error} onClick={() => navigate('yeni')}>Yeni Stok Girişi</button><button className="button product-secondary" onClick={() => navigate('cop')}>Çöp Kutusu</button></>}</div></div>
+    {deletion && <StockDeletionDialog record={deletion.record} permanent={deletion.permanent} close={() => setDeletion(undefined)} done={() => { const permanent = deletion.permanent; setDeletion(undefined); setAttempt((v) => v + 1); setNotice(permanent ? 'Stok kaydı kalıcı silindi.' : 'Renk satırı Çöp Kutusuna taşındı.'); }} />}
     {notice && <p className="product-notice" role="status">{notice}</p>}
     {error && <div className="product-alert" role="alert"><p>{error}</p><button className="button" onClick={() => setAttempt((value) => value + 1)}>Tekrar dene</button></div>}
     {!data && !error && <p role="status">Kayıtlar yükleniyor…</p>}
     {data && !error && <>
-      {mode === 'yeni' ? <StockEntryForm records={data.records} contacts={contacts} nextBatch={data.nextBatch} onOperationDone={(id) => finish(id, 'Stok işlemi kaydedildi.')} onCancel={() => navigate()} onSave={async (input) => { const record = await productRepository.create(input); await finish(record.id, `${record.batch} için stok girişi kaydedildi.`); }} />
+      {mode === 'cop' ? <Table caption="Stok Çöp Kutusu" headers={['Ürün', 'Marka', 'Parti', 'Renk', 'Silinmeden Önceki Adet', 'Silinme Tarihi', 'İşlemler']} rows={data.records.filter((r) => r.trash).map((r) => [r.name, r.brand || '—', r.batch, r.color, number(r.trash!.quantity), new Date(r.trash!.deletedAt).toLocaleString('tr-TR'), <div className="product-row-actions"><Action run={() => productRepository.restore(r.id, r.trash!.deletedAt)} done={() => { setAttempt((v) => v + 1); setNotice('Stok geri yüklendi.'); }}>Geri Yükle</Action><button onClick={() => setDeletion({ record: r, permanent: true })}>Kalıcı Sil</button></div>])} /> : mode === 'yeni' ? <StockEntryForm records={data.records.filter((r) => !r.trash)} contacts={contacts} nextBatch={data.nextBatch} onOperationDone={(id) => finish(id, 'Stok işlemi kaydedildi.')} onCancel={() => navigate()} onSave={async (input) => { const record = await productRepository.create(input); await finish(record.id, `${record.batch} için stok girişi kaydedildi.`); }} />
         : mode && (!selected || !['gecmis', 'duzelt', 'iade', 'satis'].includes(mode)) ? <div className="table-panel feedback">Stok kaydı veya ekran bulunamadı. Listeye dönerek bir kayıt seçin.</div>
         : selected && mode === 'satis' ? <SaleForm stock={selected} data={data} contacts={contacts} done={() => { void finish(selected.id, 'Satış, stok çıkışı ve cari alacak kaydedildi.'); }} />
         : selected && mode === 'gecmis' ? <><div className="product-actions product-history-actions"><button className="button product-secondary" disabled={selected.status === 'Pasif'} onClick={() => navigate('duzelt', selected.id)}>Stok Düzelt</button><button className="button product-secondary" disabled={selected.status === 'Pasif'} onClick={() => navigate('iade', selected.id)}>İade</button><button className="button" disabled={busy} onClick={() => void toggle(selected)}>{selected.status === 'Aktif' ? 'Pasif Yap' : 'Aktif Yap'}</button></div><StockHistory record={selected} data={data} contacts={contacts} /></>
@@ -74,12 +78,12 @@ export function ProductsPage() {
           <Field label="Arama"><input type="search" placeholder="Ürün, parti, renk, seri / asorti" value={filters.search} onChange={(event) => filter('ara', event.target.value)} /></Field>
           {([['brand', 'marka', 'Marka'], ['batch', 'parti', 'Parti'], ['color', 'renk', 'Renk']] as const).map(([key, param, label]) => <Field key={key} label={label}><select value={filters[key]} onChange={(event) => filter(param, event.target.value)}><option value="">Tümü</option>{options(key).map((item) => <option key={item}>{item}</option>)}</select></Field>)}
           <Field label="Durum"><select value={filters.status} onChange={(event) => filter('durum', event.target.value)}><option value="">Tümü</option><option>Aktif</option><option>Pasif</option></select></Field>
-        </div><div className="table-heading"><h2>Ürün Stokları</h2><span className="record-count" role="status">{records.length} / {data.records.length} kayıt</span></div>
+        </div><div className="table-heading"><h2>Ürün Stokları</h2><span className="record-count" role="status">{records.length} / {data.records.filter((r) => !r.trash).length} kayıt</span></div>
         <div className="table-scroll"><table className="product-table"><caption className="sr-only">Stoktaki Ürünler</caption><thead><tr>{['Ürün', 'Marka', 'Parti', 'Renk', 'Seri / Asorti', 'Paket Sayısı', 'Toplam Adet', 'Birim Maliyet', 'Tedarikçi', 'Temin Türü', 'Durum', 'İşlemler'].map((item) => <th key={item} scope="col">{item}</th>)}</tr></thead><tbody>{records.map((record) => <tr key={record.id}>
           <td><button className="product-link" onClick={() => navigate('gecmis', record.id)}>{record.name}</button></td><td>{record.brand || '—'}</td><td><strong>{record.batch}</strong></td><td>{record.color}</td><td>{record.series || '—'}<small>{record.assortment || 'Asorti belirtilmedi'}</small></td>
           <td>{number(Math.floor(record.quantity / record.packSize))}<small>{record.packSize} adet / paket{record.quantity % record.packSize ? ` + ${record.quantity % record.packSize} tek adet` : ''}</small></td><td><strong>{number(record.quantity)}</strong></td><td>{money(record.unitCostMinor)}</td>
           <td>{contacts.find((item) => item.id === record.supplierId)?.name || (record.supplierId ? 'Firma kaydı bulunamadı' : '—')}</td><td>{procurement[record.entryType]}</td><td><span className="badge">{record.status}</span></td>
-          <td><div className="product-row-actions"><button disabled={record.status === 'Pasif' || record.quantity === 0} onClick={() => navigate('satis', record.id)}>Satış Yap / Stok Çıkışı</button><button onClick={() => navigate('gecmis', record.id)}>Hareket Geçmişi</button><button disabled={record.status === 'Pasif'} onClick={() => navigate('duzelt', record.id)}>Stok Düzelt</button><button disabled={record.status === 'Pasif'} onClick={() => navigate('iade', record.id)}>İade</button><button disabled={busy} onClick={() => void toggle(record)}>{record.status === 'Aktif' ? 'Pasif Yap' : 'Aktif Yap'}</button></div></td>
+          <td><div className="product-row-actions"><button disabled={record.status === 'Pasif' || record.quantity === 0} onClick={() => navigate('satis', record.id)}>Satış Yap / Stok Çıkışı</button><button onClick={() => navigate('gecmis', record.id)}>Hareket Geçmişi</button><button disabled={record.status === 'Pasif'} onClick={() => navigate('duzelt', record.id)}>Stok Düzelt</button><button disabled={record.status === 'Pasif'} onClick={() => navigate('iade', record.id)}>İade</button><button disabled={busy} onClick={() => void toggle(record)}>{record.status === 'Aktif' ? 'Pasif Yap' : 'Aktif Yap'}</button><button onClick={() => setDeletion({ record, permanent: false })}>Sil</button></div></td>
         </tr>)}{!records.length && <tr><td colSpan={12}><div className="empty-state"><h3>{data.records.length ? 'Filtrelere uygun stok bulunamadı' : 'Henüz ürün stoğu bulunmuyor'}</h3><p>{data.records.length ? 'Aramayı veya filtreleri değiştirebilirsiniz.' : 'Yeni Stok Girişi ile ilk kaydınızı oluşturun.'}</p></div></td></tr>}</tbody></table></div>
         <p className="product-hint">Paket sayısı, mevcut adedin paket içeriğine göre tam paket karşılığıdır; kalan tek adet ayrıca gösterilir.</p></section>}
     </>}

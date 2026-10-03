@@ -20,6 +20,7 @@ export interface StockInput {
   postAccount: boolean; accountAction: AccountAction;
 }
 export interface StockRecord {
+  trash?: { deletedAt: string; quantity: number; previousStatus: 'Aktif' | 'Pasif' };
   productionNo?: string; productionRowId?: string; size?: string;
   productDefinitionId?: string;
   productId?: string; productionJobId?: string;
@@ -108,7 +109,7 @@ export const displayDate = (value: string) => value.split('-').reverse().join('.
 
 export function filterStock(records: StockRecord[], filters: { search: string; brand: string; batch: string; color: string; status: string }) {
   const query = filters.search.trim().toLocaleLowerCase('tr-TR');
-  return records.filter((record) => [record.name, record.brand, record.batch, record.color, record.series, record.assortment].join(' ').toLocaleLowerCase('tr-TR').includes(query)
+  return records.filter((record) => !record.trash && [record.name, record.brand, record.batch, record.color, record.series, record.assortment].join(' ').toLocaleLowerCase('tr-TR').includes(query)
     && (!filters.brand || record.brand === filters.brand) && (!filters.batch || record.batch === filters.batch)
     && (!filters.color || record.color === filters.color) && (!filters.status || record.status === filters.status));
 }

@@ -2,6 +2,10 @@ import type { AdjustmentInput, ProductStore, ProductionReceipt, ProductionReceip
 import type { Sale, SaleInput } from '../../domain/sales';
 
 export interface ProductRepository {
+  deletionPin: ReturnType<typeof import('../production/deletionPin').createDeletionPin>;
+  trash(id: string, pin: string, expectedQuantity: number): Promise<void>;
+  restore(id: string, deletedAt: string): Promise<void>;
+  permanentlyDelete(id: string, pin: string, deletedAt: string): Promise<void>;
   load(): Promise<ProductStore>;
   sell(input: SaleInput): Promise<Sale>;
   receiveProduction(input: ProductionReceiptInput): Promise<ProductionReceipt>;

@@ -14,7 +14,7 @@ function group(rows: { key: string; name: string; quantity: number; total?: numb
   return [...result.values()];
 }
 export function stockReport(data: WorkshopSnapshot, f: ReportFilters): ReportTable[] {
-  const stock = (data.products?.records ?? []).filter((r) => byCompany(r.supplierId, f) && (!f.productId || (r.productId ?? r.id) === f.productId) && (!f.batch || r.batch === f.batch) && (!f.to || r.date <= f.to));
+  const stock = (data.products?.records ?? []).filter((r) => !r.trash && byCompany(r.supplierId, f) && (!f.productId || (r.productId ?? r.id) === f.productId) && (!f.batch || r.batch === f.batch) && (!f.to || r.date <= f.to));
   const rows = stock.map((r) => { const movements = (data.products?.movements ?? []).filter((m) => m.stockId === r.id && (!f.to || m.date <= f.to)); const balance = movements.reduce((sum, m) => sum + m.incoming - m.outgoing, 0); const period = movements.filter((m) => during(m.date, f)); return { r, balance, incoming: period.reduce((s, m) => s + m.incoming, 0), outgoing: period.reduce((s, m) => s + m.outgoing, 0) }; });
   const tables: ReportTable[] = [{ title: `Ürün Stokları · ${number(rows.reduce((s, r) => s + r.balance, 0))} adet`, headers: ['Ürün', 'Parti', 'Renk', 'Seri', 'Asorti', 'Dönem Giriş', 'Dönem Çıkış', 'Kalan Adet', 'Durum'], rows: rows.map(({ r, balance, incoming, outgoing }) => [r.name, r.batch, r.color, r.series || '—', r.assortment || '—', incoming, outgoing, balance, r.status]) }];
   for (const type of ['Ürün', 'Parti', 'Renk', 'Seri / Asorti'] as const) {

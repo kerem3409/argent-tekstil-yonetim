@@ -200,3 +200,62 @@ test('Beş giriş türü pozitif hareket üretir; liste filtreleri birlikte çal
   assert.ok(validateStock(input({ date: '2026-02-30' })).length);
   assert.ok(validateStock(input({ packSize: 1.5 })).length);
 });
+
+test('Renk satırı mevcut PIN ile Çöp Kutusuna taşınır; hareket/cari ve kardeş renkler korunur', async () => {
+  const { repository, values } = setup();
+  await repository.deletionPin.setup('stock-pin', 'stock-pin');
+  await repository.create(input({ colors, postAccount: true }));
+  const before = await repository.load(), black = before.records[1];
+  const raw = values.get(PRODUCTS_STORAGE_KEY);
+  await assert.rejects(repository.trash(black.id, 'wrong-pin', black.quantity), /yanlış/);
+  await assert.rejects(repository.trash(black.id, 'stock-pin', black.quantity + 1), /değişti/);
+  assert.equal(values.get(PRODUCTS_STORAGE_KEY), raw);
+  await repository.trash(black.id, 'stock-pin', black.quantity);
+  const deleted = await repository.load(), row = deleted.records.find((r) => r.id === black.id)!;
+  assert.equal(row.trash?.quantity, 200); assert.equal(row.status, 'Pasif');
+  assert.deepEqual(deleted.records.filter((r) => r.id !== black.id), before.records.filter((r) => r.id !== black.id));
+  assert.deepEqual(deleted.movements, before.movements); assert.deepEqual(deleted.accountMovements, before.accountMovements);
+  assert.equal(filterStock(deleted.records, { search: '', brand: '', batch: '', color: '', status: '' }).length, 2);
+  assert.equal(deleted.records.filter((r) => r.status === 'Aktif').reduce((n, r) => n + r.quantity, 0), 800);
+  assert.equal(stockReport({ contacts: [], products: deleted, errors: [] }, emptyFilters)[0].rows.length, 2);
+  await assert.rejects(repository.setStatus(black.id, 'Aktif'), /Çöp/);
+  await assert.rejects(repository.adjust(black.id, { mode: 'difference', amount: 1, date: black.date, description: 'Sayım' }), /Çöp/);
+  await assert.rejects(repository.permanentlyDelete(black.id, 'stock-pin', row.trash!.deletedAt), /bağlı/);
+  await repository.restore(black.id, row.trash!.deletedAt);
+  assert.deepEqual((await repository.load()).records, before.records);
+});
+
+test('Kalıcı silme yalnız bağlantısız satırı kaldırır; ek hareketler ve üretim makbuzları korunur', async () => {
+  const { repository, values } = setup(); await repository.deletionPin.setup('stock-pin', 'stock-pin');
+  await repository.create(input({ colors }));
+  const black = (await repository.load()).records[1];
+  await repository.trash(black.id, 'stock-pin', black.quantity);
+  const row = (await repository.load()).records.find((r) => r.id === black.id)!;
+  const raw = values.get(PRODUCTS_STORAGE_KEY);
+  await assert.rejects(repository.permanentlyDelete(black.id, 'wrong-pin', row.trash!.deletedAt));
+  await assert.rejects(repository.permanentlyDelete(black.id, 'stock-pin', 'stale-date'));
+  assert.equal(values.get(PRODUCTS_STORAGE_KEY), raw);
+  await repository.permanentlyDelete(black.id, 'stock-pin', row.trash!.deletedAt);
+  const data = await repository.load(); assert.equal(data.records.length, 2); assert.equal(data.movements.length, 2);
+  assert.ok(!data.movements.some((m) => m.stockId === black.id));
+  const white = data.records[0]; await repository.adjust(white.id, { mode: 'difference', amount: 1, date: white.date, description: 'Sayım' });
+  await repository.trash(white.id, 'stock-pin', white.quantity + 1);
+  const adjusted = (await repository.load()).records.find((r) => r.id === white.id)!;
+  await assert.rejects(repository.permanentlyDelete(white.id, 'stock-pin', adjusted.trash!.deletedAt), /bağlı/);
+  const receipt = await repository.receiveProduction({ jobId: 'job-1', productId: 'product-1', name: 'Polo', brand: 'ARGENT', colors: [{ color: 'Siyah', quantity: 50 }], waste: 2, date: white.date, note: '', unitCostMinor: 0 });
+  await repository.trash(receipt.stockIds[0], 'stock-pin', 50);
+  const produced = (await repository.load()).records.find((r) => r.id === receipt.stockIds[0])!;
+  await assert.rejects(repository.permanentlyDelete(produced.id, 'stock-pin', produced.trash!.deletedAt), /bağlı/);
+  assert.deepEqual(await repository.receiveProduction({ jobId: 'job-1', productId: 'product-1', name: 'Polo', brand: 'ARGENT', colors: [{ color: 'Siyah', quantity: 50 }], waste: 2, date: white.date, note: '', unitCostMinor: 0 }), receipt);
+});
+
+test('Çöp Kutusu yazma hatası stok ve hareketleri değiştirmez; pasif durum geri yüklemede korunur', async () => {
+  const f = setup(); await f.repository.deletionPin.setup('stock-pin', 'stock-pin');
+  const record = await f.repository.create(input()); await f.repository.setStatus(record.id, 'Pasif');
+  await f.repository.trash(record.id, 'stock-pin', record.quantity);
+  const deleted = (await f.repository.load()).records[0]; await f.repository.restore(record.id, deleted.trash!.deletedAt);
+  assert.equal((await f.repository.load()).records[0].status, 'Pasif');
+  const raw = f.values.get(PRODUCTS_STORAGE_KEY); f.fail();
+  await assert.rejects(f.repository.trash(record.id, 'stock-pin', record.quantity), /kaydedilemedi/);
+  assert.equal(f.values.get(PRODUCTS_STORAGE_KEY), raw);
+});
