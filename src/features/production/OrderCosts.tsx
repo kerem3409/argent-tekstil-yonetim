@@ -24,7 +24,7 @@ export function OrderCosts({ order, done }: { order: ProductionOrder; done: () =
     {error && <p role="alert">{error}</p>}{!!calculated?.missing.length && <p role="alert">Bağlı maliyet kaydı bulunamadı; toplam eksik olabilir.</p>}
     <p>Kullanılan Kumaş: {calculated?.fabricKg ?? '—'} kg · Sağlam Tamamlanan: {calculated?.completed ?? 0} adet</p>
     <Table headers={['Maliyet Kalemi', 'Birim Maliyet', 'Toplam Maliyet']} rows={(calculated?.rows ?? []).map((r) => [r.name, r.unit === undefined ? 'Henüz hesaplanamadı' : costMoney(r.unit), r.total === undefined ? '—' : costMoney(r.total)])} />
-    <p>Toplam Gerçek Üretim Maliyeti: <strong>{calculated ? costMoney(calculated.total) : '—'}</strong> · Gerçek Birim Maliyet: <strong>{calculated?.unit === undefined ? 'Henüz hesaplanamadı' : costMoney(calculated.unit)}</strong></p>
+    <p>Toplam Gerçek Üretim Maliyeti: <strong>{calculated ? costMoney(calculated.total) : '—'}</strong> · {calculated?.final ? 'Nihai Gerçek Birim Maliyet' : 'Güncel / Tahmini Birim Maliyet'}: <strong>{calculated?.unit === undefined ? 'Henüz hesaplanamadı' : costMoney(calculated.unit)}</strong></p>
     <p className="ws-hint">Aşama bedeli fire dahil işlem gören adet üzerinden hesaplanır. Kaydettiğiniz fiyatlar sonuç kaydedildiğinde ilgili fasoncunun carisine yansır. Stok/fason kaynaklarında mevcut cari borç tekrar oluşturulmaz.</p>
   </Form><OrderCostSources order={order} done={done} /></div>;
 }

@@ -296,3 +296,10 @@
   .general-order-sheet .sheet-series .production-summary:empty { display: none; }
   .general-order-sheet .production-summary { margin: 1.5mm 0; }
 }
+
+.application-operation-fields { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(180px, 2fr) auto; gap: 8px; align-items: end; padding: 8px 0; }
+.production-process .plan-stage { padding: 12px; margin: 8px 0; }
+@media (max-width: 600px) { .application-operation-fields { grid-template-columns: 1fr; } }
+
+.order-extra-cost-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto; }
+@media(max-width:600px) { .order-extra-cost-row { grid-template-columns: minmax(0,1fr) minmax(0,1fr); } }

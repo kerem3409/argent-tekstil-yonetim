@@ -11,7 +11,7 @@ import { itemStatus, validateNotes, validatePlanInput, validatePlanRecords } fro
 import type { PlanItem, ProductionPlan } from './productionPlan';
 
 export interface EmbroideryInfo { notes: string[]; colorNotes: { color: string; note: string }[]; position: string; size: string; technicalNote: string; color?: string }
-export interface ApplicationCard { id: string; type: 'Baskı' | 'Nakış'; notes: string[] }
+export interface ApplicationCard { id: string; type: 'Baskı' | 'Nakış'; name?: string; notes: string[] }
 export interface PackagingInfo { unitsPerPack?: number; type: string; sizeMode: string; note: string; labelingNote: string }
 export interface OrderProduct extends PlanItem { brandId: string; embroidery: EmbroideryInfo; packaging: PackagingInfo; printing?: EmbroideryInfo; applicationCards?: ApplicationCard[]; dropShoulder?: boolean; sideSlit?: boolean; sampleImages?: SampleImage[] }
 export interface StagePlan { type: import('./productionPlan').PlanStage; companyId: string; plannedStart: string; dueDate: string }
@@ -63,7 +63,7 @@ export function validateOrderProduct(product: OrderProduct) {
   if (product.applicationCards !== undefined) {
     if (!Array.isArray(product.applicationCards) || product.applicationCards.length > 50) throw new Error('Uygulama kartları geçersiz.');
     const ids = new Set<string>();
-    for (const card of product.applicationCards) { requireText(card.id, 'İşlem kimliği'); if (ids.has(card.id) || !['Baskı', 'Nakış'].includes(card.type)) throw new Error('Uygulama kartı geçersiz.'); ids.add(card.id); validateNotes(card.notes); }
+    for (const card of product.applicationCards) { requireText(card.id, 'İşlem kimliği'); if (ids.has(card.id) || !['Baskı', 'Nakış'].includes(card.type)) throw new Error('Uygulama kartı geçersiz.'); ids.add(card.id); if (card.name !== undefined && (typeof card.name !== 'string' || card.name.length > 200)) throw new Error('İşlem adı geçersiz.'); validateNotes(card.notes); }
   }
   const fields = [product.embroidery.position, product.embroidery.size, product.embroidery.technicalNote, product.packaging.type, product.packaging.sizeMode, product.packaging.note, product.packaging.labelingNote];
   if (fields.some((s) => typeof s !== 'string' || s.length > 2000)) throw new Error('Teknik bilgiler en fazla 2000 karakter olabilir.');

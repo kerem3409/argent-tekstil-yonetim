@@ -133,8 +133,10 @@ export function createOrderRepository(storage: () => StoragePort, deps: Dependen
         return save(data, o);
       });
     },
-    async beginPlannedStage(id: string, revision: number, type: PlanStage) {
-      return store.transact(async (data) => { const o = await find(data, id, revision), p = editable(o), plan = stagePlan(o, type);
+    async beginPlannedStage(id: string, revision: number, type: PlanStage, input?: StagePlan) {
+      if (input) { if (input.type !== type) throw new Error('Aşama planı geçersiz.'); await company(type, input.companyId); checkDate(input.plannedStart); checkDate(input.dueDate); if (input.dueDate < input.plannedStart) throw new Error('Aşama termini başlangıçtan önce olamaz.'); }
+      return store.transact(async (data) => { const o = await find(data, id, revision), p = editable(o), plan = input ?? stagePlan(o, type);
+        if (input) o.stagePlans = [...(o.stagePlans ?? []).filter((v) => v.type !== type), structuredClone(input)];
         if (!plan) throw new Error('Önce bu aşamanın firma ve tarih planını kaydedin.'); await company(type, plan.companyId);
         if (!stageAvailable(p, type) || stageRecord(p, type)) throw new Error('Aşama zaten başladı veya önceki aşama tamamlanmadı.');
         const now = new Date().toISOString(); o.productionStartedAt ??= now;

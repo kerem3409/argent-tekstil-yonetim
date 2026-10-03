@@ -29,7 +29,7 @@ export function GeneralOrderSheet({ order, contacts, done }: { order: Production
     <section className="ws-card general-costs"><h2>Maliyetler</h2>{data.error ? <p role="alert">{data.error} <button onClick={data.reload}>Tekrar dene</button></p> : !data.data ? <p>Kaynak kayıtlar yükleniyor…</p> : <>
       {summary.missing.length > 0 && <p role="alert">{summary.missing.length} bağlı kaynak artık bulunamıyor. Toplam eksik olabilir; kaynak bağlantılarını kontrol edin.</p>}
       <Table headers={['Maliyet Kalemi', 'Birim Maliyet', 'Toplam Maliyet']} rows={summary.rows.filter((r, i) => i < 5 || r.total !== undefined).map((r) => [r.name, r.unit === undefined ? '—' : costMoney(r.unit), r.total === undefined ? '—' : costMoney(r.total)])} />
-      <p className="sheet-cost-total">Toplam Birim Maliyet: <strong>{summary.unit === undefined ? 'Henüz hesaplanamadı' : costMoney(summary.unit)}</strong> · Genel Toplam Maliyet: <strong>{costMoney(summary.total)}</strong></p><p className="ws-hint production-screen-only">Gerçek birim maliyet, toplam giderin sağlam tamamlanan {summary.completed} ürüne bölünmesiyle hesaplanır. Maliyetler üretim kaydında düzenlenir.</p>
+      <p className="sheet-cost-total">Toplam Birim Maliyet: <strong>{summary.unit === undefined ? 'Henüz hesaplanamadı' : costMoney(summary.unit)}</strong> · Genel Toplam Maliyet: <strong>{costMoney(summary.total)}</strong></p><p className="ws-hint production-screen-only">{summary.final ? 'Nihai gerçek' : 'Güncel / tahmini'} birim maliyet, toplam giderin mevcut {summary.currentQuantity} ürüne bölünmesiyle hesaplanır. Maliyetler üretim kaydında düzenlenir.</p>
     </>}</section>
   </article>;
 }

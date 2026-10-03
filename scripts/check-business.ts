@@ -221,3 +221,30 @@ test('Tek Nakış/Baskı grubu teknik bilgileri ve ayrı sonuçları korur; baş
   o=await f.orders.beginPlannedStage(o.id,o.revision,'Baskı'); o=await f.orders.recordStageResult(o.id,o.revision,'Baskı',[{color:'Siyah',quantity:92}],[]);
   assert.equal(o.product.stages.find((s)=>s.type==='Nakış')?.result?.rows[0].quantity,95); assert.equal(o.product.stages.find((s)=>s.type==='Baskı')?.result?.rows[0].quantity,92);
 });
+
+
+test('Kesimden itibaren güncel maliyet, lojistik ve birim/toplu kalemler ortak sonuçlarla hesaplanır', async () => {
+  const f = await setup(), data = emptyCostData();
+  let o = await f.orders.create(f.input);
+  const details = { ...emptyOrderCosting(), logisticsMinor: 100000, extras: [
+    { id: 'unit', category: 'Diğer' as const, calculation: 'unit' as const, name: 'Özel malzeme', amountMinor: 500, companyId: '', date: o.date },
+    { id: 'total', category: 'Diğer' as const, calculation: 'total' as const, name: 'Kalıp', amountMinor: 150000, companyId: '', date: o.date },
+  ] };
+  o = await f.orders.saveCosts(o.id, o.revision, { Kumaş: 1000, Kesim: 200, Dikim: 300, 'Ütü & Paket': 100 }, details);
+  assert.equal(actualProductionCosts(o, data).unit, undefined);
+  for (const [type, count, expected] of [['Kesim', 110, 337000], ['Dikim', 100, 365000], ['Ütü & Paket', 90, 370000]] as const) {
+    o = await f.orders.beginPlannedStage(o.id, o.revision, type, { type, companyId: f.supplier.id, plannedStart: o.date, dueDate: o.dueDate });
+    o = await f.orders.recordStageResult(o.id, o.revision, type, [{ color: 'Siyah', quantity: count, ...(type === 'Kesim' ? { kg: 10 } : {}) }], []);
+    const costs = actualProductionCosts(o, data);
+    assert.equal(costs.total, expected); assert.equal(costs.unit, Math.round(expected / count));
+    assert.equal(costs.currentQuantity, count); assert.equal(costs.final, type === 'Ütü & Paket');
+  }
+  const raw = [...f.values.entries()];
+  const applied = structuredClone(o);
+  applied.costPricesMinor = { ...o.costPricesMinor, Uygulama: 250 };
+  applied.product.enabledStages = ['Kesim', 'Nakış', 'Baskı', 'Dikim', 'Ütü & Paket'];
+  for (const type of ['Nakış', 'Baskı'] as const) applied.product.stages.push({ type, companyId: f.supplier.id, date: o.date, notes: [], colorNotes: [], result: { date: o.date, rows: [{ color: 'Siyah', quantity: 100 }] } });
+  assert.equal(actualProductionCosts(applied, data).rows.find((r) => r.name === 'Uygulama')?.total, 27500);
+  await assert.rejects(f.orders.saveCosts(o.id, o.revision, {}, { ...details, logisticsMinor: -1 }));
+  assert.deepEqual([...f.values.entries()], raw);
+});

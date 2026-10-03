@@ -8,5 +8,5 @@ export function SeriesPackage({ order }: { order: ProductionOrder }) {
 }
 export function DecorationInfo({ order }: { order: ProductionOrder }) {
   const cards = productApplicationCards(order.product);
-  return cards.length ? <div className="decoration-info">{cards.map((card) => <div key={card.id}><strong>{card.type}</strong><ul>{card.notes.filter(Boolean).map((note, i) => <li key={i}>{note}</li>)}</ul></div>)}</div> : <p>Baskı / Nakış yok</p>;
+  return cards.length ? <div className="decoration-info">{cards.map((card) => <div key={card.id}><strong>{card.name || card.type}</strong><ul>{card.notes.filter(Boolean).map((note, i) => <li key={i}>{note}</li>)}</ul></div>)}</div> : <p>Baskı / Nakış yok</p>;
 }
